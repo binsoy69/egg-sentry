@@ -74,3 +74,6 @@ Thumbs.db
 # Custom project rules
 vids/*.mp4
 ui_mockup/*
+backend/test_backend.db
+backend/egg_sentry.db
+backend/.deps/

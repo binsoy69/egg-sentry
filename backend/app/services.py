@@ -1,0 +1,323 @@
+﻿from __future__ import annotations
+
+from collections import Counter, defaultdict
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.config import get_settings
+from app.constants import SIZE_DISPLAY_MAP, SIZE_ORDER
+from app.models import Alert, Device, EggDetection
+from app.schemas import HistoryRecord
+
+
+settings = get_settings()
+
+
+def app_tz() -> ZoneInfo:
+    return ZoneInfo(settings.app_timezone)
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def ensure_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def local_day_bounds(target_date: date) -> tuple[datetime, datetime]:
+    tz = app_tz()
+    start_local = datetime.combine(target_date, time.min, tzinfo=tz)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def current_local_date() -> date:
+    return utc_now().astimezone(app_tz()).date()
+
+
+def localize(dt: datetime) -> datetime:
+    return ensure_aware(dt).astimezone(app_tz())
+
+
+def size_display(size: str | None) -> str:
+    if not size:
+        return "?"
+    return SIZE_DISPLAY_MAP.get(size, size.upper())
+
+
+def status_for_device(device: Device) -> tuple[bool, str]:
+    if not device.last_heartbeat:
+        return False, "offline"
+    heartbeat_age = utc_now() - ensure_aware(device.last_heartbeat)
+    is_online = heartbeat_age <= timedelta(minutes=settings.alert_heartbeat_timeout_minutes)
+    return is_online, "online" if is_online else "offline"
+
+
+def _maybe_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def get_device_by_identifier(db: Session, identifier: str | None) -> Device | None:
+    if not identifier:
+        return None
+    stmt = select(Device).where(Device.device_id == identifier)
+    device = db.execute(stmt).scalar_one_or_none()
+    if device is not None:
+        return device
+    numeric = _maybe_int(identifier)
+    if numeric is None:
+        return None
+    stmt = select(Device).where(Device.id == numeric)
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def get_primary_device(db: Session) -> Device | None:
+    stmt = select(Device).where(Device.is_active.is_(True)).order_by(Device.id.asc())
+    device = db.execute(stmt).scalar_one_or_none()
+    if device:
+        return device
+    stmt = select(Device).order_by(Device.id.asc())
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def build_history_record(detection: EggDetection) -> HistoryRecord:
+    local_dt = localize(detection.detected_at)
+    display = size_display(detection.size)
+    device = detection.device.device_id if detection.device else ""
+    return HistoryRecord(
+        id=detection.id,
+        date=local_dt.strftime("%a, %b %d, %Y"),
+        size=detection.size,
+        size_display=display,
+        detected_at=local_dt.strftime("%b %d, %Y, %I:%M %p"),
+        confidence=detection.confidence,
+        timestamp=local_dt.isoformat(),
+        device_id=device,
+        estimated_size=display,
+        count=1,
+        image_url=None,
+    )
+
+
+def query_detections(
+    db: Session,
+    *,
+    device: Device | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> list[EggDetection]:
+    stmt = select(EggDetection).order_by(EggDetection.detected_at.asc())
+    if device:
+        stmt = stmt.where(EggDetection.device_id == device.id)
+    if start:
+        stmt = stmt.where(EggDetection.detected_at >= ensure_aware(start))
+    if end:
+        stmt = stmt.where(EggDetection.detected_at < ensure_aware(end))
+    return list(db.execute(stmt).scalars().all())
+
+
+def count_for_day(db: Session, device: Device, target_date: date) -> int:
+    start, end = local_day_bounds(target_date)
+    stmt = select(func.count(EggDetection.id)).where(
+        EggDetection.device_id == device.id,
+        EggDetection.detected_at >= start,
+        EggDetection.detected_at < end,
+    )
+    return int(db.execute(stmt).scalar_one() or 0)
+
+
+def aggregate_counts_by_day(detections: list[EggDetection]) -> dict[date, int]:
+    counts: dict[date, int] = defaultdict(int)
+    for detection in detections:
+        counts[localize(detection.detected_at).date()] += 1
+    return dict(counts)
+
+
+def aggregate_sizes(detections: list[EggDetection], include_unknown: bool = False) -> dict[str, int]:
+    counts: dict[str, int] = {size: 0 for size in SIZE_ORDER if include_unknown or size != "unknown"}
+    for detection in detections:
+        if detection.size == "unknown" and not include_unknown:
+            continue
+        counts[detection.size] = counts.get(detection.size, 0) + 1
+    return counts
+
+
+def best_day_from_detections(detections: list[EggDetection]) -> tuple[date | None, int]:
+    by_day = aggregate_counts_by_day(detections)
+    if not by_day:
+        return None, 0
+    best_date, count = max(by_day.items(), key=lambda item: (item[1], item[0]))
+    return best_date, count
+
+
+def top_size_from_detections(detections: list[EggDetection]) -> tuple[str | None, int]:
+    filtered = [d.size for d in detections if d.size != "unknown"]
+    if not filtered:
+        return None, 0
+    counter = Counter(filtered)
+    size, count = counter.most_common(1)[0]
+    return size, count
+
+
+def month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+    tz = app_tz()
+    start_local = datetime(year, month, 1, tzinfo=tz)
+    if month == 12:
+        end_local = datetime(year + 1, 1, 1, tzinfo=tz)
+    else:
+        end_local = datetime(year, month + 1, 1, tzinfo=tz)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def year_bounds(year: int) -> tuple[datetime, datetime]:
+    tz = app_tz()
+    start_local = datetime(year, 1, 1, tzinfo=tz)
+    end_local = datetime(year + 1, 1, 1, tzinfo=tz)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def week_of_month_bounds(year: int, month: int, week: int) -> tuple[datetime, datetime, date, date]:
+    start_month, end_month = month_bounds(year, month)
+    start_date = start_month.astimezone(app_tz()).date()
+    first_day = start_date + timedelta(days=(week - 1) * 7)
+    month_end_date = end_month.astimezone(app_tz()).date()
+    next_boundary = min(first_day + timedelta(days=7), month_end_date)
+    start, _ = local_day_bounds(first_day)
+    end, _ = local_day_bounds(next_boundary)
+    return start, end, first_day, next_boundary - timedelta(days=1)
+
+
+def daily_chart_points(detections: list[EggDetection], start_date: date, end_date: date) -> list[dict[str, int | str]]:
+    counts = aggregate_counts_by_day(detections)
+    points: list[dict[str, int | str]] = []
+    current = start_date
+    while current <= end_date:
+        points.append({"date": current.isoformat(), "count": counts.get(current, 0)})
+        current += timedelta(days=1)
+    return points
+
+
+def average_per_day(total: int, day_count: int) -> float:
+    if day_count <= 0:
+        return 0.0
+    return round(total / day_count, 1)
+
+def alert_exists_recently(db: Session, *, device_id: int | None, alert_type: str) -> bool:
+    cutoff = utc_now() - timedelta(minutes=settings.alert_cooldown_minutes)
+    stmt = select(Alert.id).where(
+        Alert.type == alert_type,
+        Alert.device_id == device_id,
+        Alert.created_at >= cutoff,
+    )
+    return db.execute(stmt).first() is not None
+
+
+def create_alert(
+    db: Session,
+    *,
+    device: Device | None,
+    alert_type: str,
+    severity: str,
+    message: str,
+) -> Alert | None:
+    device_fk = device.id if device else None
+    if alert_exists_recently(db, device_id=device_fk, alert_type=alert_type):
+        return None
+    alert = Alert(device_id=device_fk, type=alert_type, severity=severity, message=message)
+    db.add(alert)
+    db.flush()
+    return alert
+
+
+def evaluate_uncertain_detection_alert(db: Session, device: Device) -> None:
+    cutoff = utc_now() - timedelta(hours=1)
+    stmt = select(func.count(EggDetection.id)).where(
+        EggDetection.device_id == device.id,
+        EggDetection.detected_at >= cutoff,
+        EggDetection.size == "unknown",
+    )
+    unknown_count = int(db.execute(stmt).scalar_one() or 0)
+    if unknown_count > settings.alert_uncertain_threshold:
+        create_alert(
+            db,
+            device=device,
+            alert_type="uncertain_detection",
+            severity="info",
+            message=f"Multiple uncertain detections from {device.name} in the last hour - check camera alignment",
+        )
+
+
+def evaluate_device_offline_alert(db: Session, device: Device) -> None:
+    is_online, _ = status_for_device(device)
+    if is_online or not device.last_heartbeat:
+        return
+    minutes = int((utc_now() - ensure_aware(device.last_heartbeat)).total_seconds() // 60)
+    create_alert(
+        db,
+        device=device,
+        alert_type="device_offline",
+        severity="warning",
+        message=f"{device.name} has not sent a heartbeat in {minutes} minutes",
+    )
+
+
+def evaluate_missing_data_alert(db: Session, device: Device) -> None:
+    local_now = utc_now().astimezone(app_tz())
+    if local_now.hour < 6 or local_now.hour >= 18:
+        return
+    cutoff = utc_now() - timedelta(hours=settings.alert_missing_data_hours)
+    stmt = select(EggDetection.id).where(
+        EggDetection.device_id == device.id,
+        EggDetection.detected_at >= cutoff,
+    )
+    if db.execute(stmt).first() is None:
+        create_alert(
+            db,
+            device=device,
+            alert_type="missing_data",
+            severity="warning",
+            message=f"No egg detections from {device.name} in the last {settings.alert_missing_data_hours} hours",
+        )
+
+
+def evaluate_low_production_alert(db: Session, device: Device) -> None:
+    local_now = utc_now().astimezone(app_tz())
+    if local_now.hour < 18:
+        return
+    today = local_now.date()
+    today_count = count_for_day(db, device, today)
+    previous_counts = [count_for_day(db, device, today - timedelta(days=offset)) for offset in range(1, 8)]
+    baseline_days = [value for value in previous_counts if value > 0]
+    if not baseline_days:
+        return
+    average = sum(baseline_days) / len(baseline_days)
+    if today_count < average * settings.alert_low_production_threshold:
+        create_alert(
+            db,
+            device=device,
+            alert_type="low_production",
+            severity="info",
+            message=f"Today's egg count ({today_count}) is below the daily average ({average:.1f})",
+        )
+
+
+def evaluate_alerts(db: Session, device: Device | None = None) -> None:
+    if device is not None:
+        devices = [device]
+    else:
+        devices = list(db.execute(select(Device)).scalars().all())
+    for current in devices:
+        evaluate_device_offline_alert(db, current)
+        evaluate_missing_data_alert(db, current)
+        evaluate_low_production_alert(db, current)
