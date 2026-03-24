@@ -1,0 +1,18 @@
+{
+  "capture_interval_seconds": 120,
+  "confidence_threshold": 0.5,
+  "stabilization_window": 3,
+  "camera_warmup_seconds": 0.5,
+  "edge_margin_pixels": 10,
+  "aspect_ratio_min": 0.5,
+  "aspect_ratio_max": 2.0,
+  "video_loop": true,
+  "model_path": "../models/counter-yolo26n.pt",
+  "size_thresholds": {
+    "small_max": 0.002,
+    "medium_max": 0.003,
+    "large_max": 0.0042,
+    "xl_max": 0.0055
+  }
+}
+
