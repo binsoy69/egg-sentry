@@ -1,4 +1,4 @@
-{
+﻿{
   "capture_interval_seconds": 120,
   "confidence_threshold": 0.5,
   "stabilization_window": 3,
@@ -8,6 +8,15 @@
   "aspect_ratio_max": 2.0,
   "video_loop": true,
   "model_path": "../models/counter-yolo26n.pt",
+  "backend_api_base_url": "http://127.0.0.1:8000/api",
+  "device_id": "cam-001",
+  "device_api_key": "dev-cam-001-key",
+  "heartbeat_interval_seconds": 60,
+  "request_timeout_seconds": 10,
+  "retry_max_attempts": 3,
+  "retry_backoff_seconds": 1,
+  "retry_backoff_max_seconds": 8,
+  "offline_queue_path": "offline_events.json",
   "size_thresholds": {
     "small_max": 0.002,
     "medium_max": 0.003,
@@ -15,4 +24,3 @@
     "xl_max": 0.0055
   }
 }
-

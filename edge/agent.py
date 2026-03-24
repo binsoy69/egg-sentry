@@ -3,22 +3,25 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from dataclasses import replace
+from dataclasses import asdict, dataclass, field, replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
 
 try:
     from .capture import CameraCapture, VideoCaptureSampler, resolve_source
-    from .config import DEFAULT_CONFIG_PATH, load_config
+    from .config import DEFAULT_CONFIG_PATH, EdgeConfig, load_config
     from .detector import EggDetector
-    from .size_classifier import SizeClassifier, count_sizes
+    from .reporter import EventReporter, PermanentReporterError, RetryableReporterError
+    from .size_classifier import SIZE_ORDER, SizeClassifier, count_sizes
     from .stabilizer import CaptureSnapshot, RollingStabilizer
 except ImportError:
     from capture import CameraCapture, VideoCaptureSampler, resolve_source
-    from config import DEFAULT_CONFIG_PATH, load_config
+    from config import DEFAULT_CONFIG_PATH, EdgeConfig, load_config
     from detector import EggDetector
-    from size_classifier import SizeClassifier, count_sizes
+    from reporter import EventReporter, PermanentReporterError, RetryableReporterError
+    from size_classifier import SIZE_ORDER, SizeClassifier, count_sizes
     from stabilizer import CaptureSnapshot, RollingStabilizer
 
 WINDOW_NAME = "EggSentry Edge Agent"
@@ -33,9 +36,16 @@ SIZE_COLORS = {
 }
 
 
+@dataclass
+class ReportingState:
+    live_count: int = 0
+    size_counts: dict[str, int] = field(default_factory=dict)
+    next_heartbeat_at: float = 0.0
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="EggSentry Phase 1 edge agent: capture, infer, classify, stabilize."
+        description="EggSentry edge agent: capture, infer, classify, stabilize, and report."
     )
     parser.add_argument(
         "--source",
@@ -60,6 +70,32 @@ def parse_args() -> argparse.Namespace:
         help="Path to the edge config JSON file.",
     )
     parser.add_argument(
+        "--backend-url",
+        default=None,
+        help="Backend API base URL, for example http://127.0.0.1:8000/api.",
+    )
+    parser.add_argument(
+        "--device-id",
+        default=None,
+        help="Device identifier sent to the backend.",
+    )
+    parser.add_argument(
+        "--device-key",
+        default=None,
+        help="Device API key used for X-Device-Key authentication.",
+    )
+    parser.add_argument(
+        "--heartbeat-interval",
+        type=int,
+        default=None,
+        help="Heartbeat interval in seconds. Defaults to config.json / env value.",
+    )
+    parser.add_argument(
+        "--queue-path",
+        default=None,
+        help="Path to the offline event queue JSON file.",
+    )
+    parser.add_argument(
         "--display",
         action="store_true",
         help="Show annotated detections in an OpenCV window.",
@@ -72,7 +108,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_runtime_config(args: argparse.Namespace):
+def build_runtime_config(args: argparse.Namespace) -> EdgeConfig:
     config = load_config(args.config)
     if args.interval is not None:
         config = replace(config, capture_interval_seconds=args.interval)
@@ -80,7 +116,21 @@ def build_runtime_config(args: argparse.Namespace):
         config = replace(config, confidence_threshold=args.conf)
     if args.no_video_loop:
         config = replace(config, video_loop=False)
+    if args.backend_url is not None:
+        config = replace(config, backend_api_base_url=args.backend_url.rstrip("/"))
+    if args.device_id is not None:
+        config = replace(config, device_id=args.device_id)
+    if args.device_key is not None:
+        config = replace(config, device_api_key=args.device_key)
+    if args.heartbeat_interval is not None:
+        config = replace(config, heartbeat_interval_seconds=args.heartbeat_interval)
+    if args.queue_path is not None:
+        config = replace(config, offline_queue_path=Path(args.queue_path))
     return config
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def format_detection_record(detection, classification) -> dict[str, object]:
@@ -94,6 +144,117 @@ def format_detection_record(detection, classification) -> dict[str, object]:
         "aspect_ratio": round(classification.aspect_ratio, 4),
         "reason": classification.reason,
     }
+
+
+def _ordered_sizes(*size_maps: dict[str, int]) -> list[str]:
+    ordered = list(SIZE_ORDER)
+    extras: list[str] = []
+    for size_map in size_maps:
+        for size in size_map:
+            if size not in SIZE_ORDER and size not in extras:
+                extras.append(size)
+    return ordered + extras
+
+
+def build_new_egg_records(
+    previous_size_counts: dict[str, int],
+    current_size_counts: dict[str, int],
+    detections: list[dict[str, object]],
+    detected_at: datetime,
+) -> list[dict[str, object]]:
+    timestamp = detected_at.isoformat()
+    detections_by_size: dict[str, list[dict[str, object]]] = {}
+    for detection in detections:
+        size = str(detection.get("size", "unknown"))
+        detections_by_size.setdefault(size, []).append(dict(detection))
+
+    new_eggs: list[dict[str, object]] = []
+    for size in _ordered_sizes(previous_size_counts, current_size_counts):
+        needed = max(0, current_size_counts.get(size, 0) - previous_size_counts.get(size, 0))
+        if needed <= 0:
+            continue
+
+        candidates = detections_by_size.get(size, [])
+        for _ in range(needed):
+            detection = candidates.pop(0) if candidates else {}
+            new_eggs.append(
+                {
+                    "size": size,
+                    "confidence": detection.get("confidence"),
+                    "bbox_area_normalized": detection.get("normalized_area"),
+                    "detected_at": timestamp,
+                }
+            )
+
+    return new_eggs
+
+
+def sync_reporting_state(state: ReportingState, stabilized) -> None:
+    state.live_count = stabilized.total_count
+    state.size_counts = dict(stabilized.size_counts)
+
+
+def flush_queue(reporter: EventReporter | None) -> dict[str, int] | None:
+    if reporter is None:
+        return None
+    return asdict(reporter.flush_event_queue())
+
+
+def maybe_send_heartbeat(
+    reporter: EventReporter | None,
+    state: ReportingState,
+    heartbeat_interval_seconds: int,
+    current_count: int,
+) -> dict[str, object] | None:
+    if reporter is None:
+        return None
+
+    now_monotonic = time.monotonic()
+    if now_monotonic < state.next_heartbeat_at:
+        return None
+
+    state.next_heartbeat_at = now_monotonic + heartbeat_interval_seconds
+    try:
+        heartbeat = reporter.send_heartbeat(timestamp=utc_now(), current_count=current_count)
+    except RetryableReporterError:
+        return {
+            "delivery": {
+                "delivered": False,
+                "queued": False,
+                "status_code": None,
+                "response_body": None,
+                "queue_depth": reporter.queue_depth(),
+            },
+            "queue_flush": None,
+        }
+
+    queue_flush = reporter.flush_event_queue()
+    return {
+        "delivery": asdict(heartbeat),
+        "queue_flush": asdict(queue_flush),
+    }
+
+
+def wait_until_next_capture(
+    deadline: float,
+    reporter: EventReporter | None,
+    state: ReportingState,
+    heartbeat_interval_seconds: int,
+    current_count: int,
+) -> None:
+    while True:
+        maybe_send_heartbeat(reporter, state, heartbeat_interval_seconds, current_count)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+
+        sleep_slice = min(1.0, remaining)
+        if reporter is not None:
+            until_heartbeat = max(0.0, state.next_heartbeat_at - time.monotonic())
+            if until_heartbeat == 0.0:
+                continue
+            sleep_slice = min(sleep_slice, until_heartbeat)
+        time.sleep(max(0.0, sleep_slice))
 
 
 def annotate_frame(frame, detections, classifications, stabilized, cycle_index, source_label):
@@ -180,6 +341,17 @@ def run() -> int:
         aspect_ratio_max=config.aspect_ratio_max,
     )
     stabilizer = RollingStabilizer(window_size=config.stabilization_window)
+    reporter = EventReporter(
+        backend_api_base_url=config.backend_api_base_url,
+        device_id=config.device_id,
+        device_api_key=config.device_api_key,
+        timeout_seconds=config.request_timeout_seconds,
+        retry_max_attempts=config.retry_max_attempts,
+        retry_backoff_seconds=config.retry_backoff_seconds,
+        retry_backoff_max_seconds=config.retry_backoff_max_seconds,
+        offline_queue_path=config.offline_queue_path,
+    )
+    reporting_state = ReportingState(next_heartbeat_at=0.0)
 
     if isinstance(source, int):
         frame_source = CameraCapture(
@@ -199,9 +371,16 @@ def run() -> int:
     try:
         while True:
             if isinstance(source, int) and cycle_index > 0:
-                time.sleep(config.capture_interval_seconds)
+                wait_until_next_capture(
+                    deadline=time.monotonic() + config.capture_interval_seconds,
+                    reporter=reporter,
+                    state=reporting_state,
+                    heartbeat_interval_seconds=config.heartbeat_interval_seconds,
+                    current_count=reporting_state.live_count,
+                )
 
             captured = frame_source.capture_frame()
+            event_timestamp = utc_now()
             cycle_index += 1
 
             detections = detector.detect(captured.frame, use_tracking=use_tracking)
@@ -222,6 +401,48 @@ def run() -> int:
             )
             stabilized = stabilizer.update(snapshot)
 
+            previous_live_count = reporting_state.live_count
+            previous_size_counts = dict(reporting_state.size_counts)
+            queue_status = flush_queue(reporter)
+            event_status = None
+
+            if stabilized.total_count > previous_live_count:
+                new_eggs = build_new_egg_records(
+                    previous_size_counts,
+                    stabilized.size_counts,
+                    snapshot.detections,
+                    event_timestamp,
+                )
+                event_status = asdict(
+                    reporter.send_event(
+                        timestamp=event_timestamp,
+                        total_count=stabilized.total_count,
+                        new_eggs=new_eggs,
+                        size_breakdown=stabilized.size_counts,
+                    )
+                )
+                sync_reporting_state(reporting_state, stabilized)
+            else:
+                event_status = asdict(
+                    reporter.send_snapshot(
+                        timestamp=event_timestamp,
+                        total_count=stabilized.total_count,
+                        size_breakdown=stabilized.size_counts,
+                    )
+                )
+                if (
+                    stabilized.total_count != previous_live_count
+                    or stabilized.size_counts != previous_size_counts
+                ):
+                    sync_reporting_state(reporting_state, stabilized)
+
+            heartbeat_status = maybe_send_heartbeat(
+                reporter,
+                reporting_state,
+                config.heartbeat_interval_seconds,
+                stabilized.total_count,
+            )
+
             payload = {
                 "cycle": cycle_index,
                 "source": source_label,
@@ -231,11 +452,19 @@ def run() -> int:
                     if captured.timestamp_seconds is None
                     else round(captured.timestamp_seconds, 3)
                 ),
+                "captured_at": event_timestamp.isoformat(),
                 "raw_count": snapshot.total_count,
                 "raw_size_counts": snapshot.size_counts,
                 "stable_count": stabilized.total_count,
                 "stable_size_counts": stabilized.size_counts,
                 "detections": snapshot.detections,
+                "reporting": {
+                    "previous_live_count": previous_live_count,
+                    "queue_flush": queue_status,
+                    "event": event_status,
+                    "heartbeat": heartbeat_status,
+                    "queue_depth": reporter.queue_depth(),
+                },
             }
             print(json.dumps(payload, sort_keys=True))
 
@@ -255,10 +484,14 @@ def run() -> int:
                     break
     except StopIteration:
         print("Video source exhausted; exiting because --no-video-loop was set.")
+    except PermanentReporterError as exc:
+        print(f"Backend rejected the edge request: {exc}")
+        return 1
     except KeyboardInterrupt:
         print("Interrupted by user.")
     finally:
         frame_source.close()
+        reporter.close()
         if args.display:
             cv2.destroyAllWindows()
 
@@ -267,4 +500,3 @@ def run() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(run())
-

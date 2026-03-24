@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ultralytics import YOLO
-
 
 @dataclass(frozen=True)
 class Detection:
@@ -36,6 +34,8 @@ class Detection:
 
 class EggDetector:
     def __init__(self, model_path: str | Path, confidence_threshold: float = 0.5) -> None:
+        from ultralytics import YOLO
+
         self.model_path = Path(model_path)
         if not self.model_path.exists():
             raise FileNotFoundError(f"YOLO model not found at {self.model_path}")
@@ -89,4 +89,3 @@ class EggDetector:
                 )
 
         return detections
-

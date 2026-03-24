@@ -77,3 +77,4 @@ ui_mockup/*
 backend/test_backend.db
 backend/egg_sentry.db
 backend/.deps/
+edge/offline_events.json

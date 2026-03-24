@@ -6,9 +6,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-os.environ.setdefault("DATABASE_URL", f"sqlite:///{(ROOT / 'test_backend.db').as_posix()}")
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = BACKEND_ROOT.parent
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(BACKEND_ROOT))
+os.environ["DEBUG"] = "false"
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{(BACKEND_ROOT / 'test_backend.db').as_posix()}")
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("AUTO_CREATE_SCHEMA", "true")
 os.environ.setdefault("SEED_ADMIN_PASSWORD", "admin123")
