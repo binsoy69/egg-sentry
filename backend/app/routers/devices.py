@@ -50,6 +50,7 @@ def heartbeat(
         raise HTTPException(status_code=400, detail="Device ID does not match authenticated device")
     current_device.last_heartbeat = payload.timestamp
     db.add(current_device)
+    evaluate_alerts(db, current_device)
     db.commit()
     return DeviceHeartbeatResponse()
 

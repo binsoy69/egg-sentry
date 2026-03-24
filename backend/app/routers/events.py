@@ -12,7 +12,7 @@ from app.services import (
     count_for_day,
     current_local_date,
     ensure_aware,
-    evaluate_uncertain_detection_alert,
+    evaluate_alerts,
     get_device_by_identifier,
     query_detections,
 )
@@ -55,7 +55,7 @@ def ingest_events(
     current_device.last_heartbeat = payload.timestamp
     db.add(current_device)
     db.flush()
-    evaluate_uncertain_detection_alert(db, current_device)
+    evaluate_alerts(db, current_device)
     db.commit()
     return EventIngestResponse(
         events_created=events_created,

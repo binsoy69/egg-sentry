@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { BarChart3, CalendarDays, CalendarRange, Egg, TrendingUp } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 
+import AlertPanel from '../components/dashboard/AlertPanel';
 import CameraCard from '../components/dashboard/CameraCard';
 import DailyChart from '../components/dashboard/DailyChart';
 import MetricCard from '../components/dashboard/MetricCard';
@@ -90,8 +91,11 @@ const DashboardPage = () => {
     yearlyStats,
     dailyChart,
     sizeDistribution,
+    alerts,
     loading: dashLoading,
     error: dashboardError,
+    dismissAlert,
+    dismissingAlertId,
   } = useDashboard({
     weekParams: { ...weekParams, week: resolvedWeek },
     monthParams,
@@ -136,6 +140,13 @@ const DashboardPage = () => {
           {errorMessage}
         </div>
       ) : null}
+
+      <AlertPanel
+        alerts={alerts}
+        loading={dashLoading || devicesLoading}
+        dismissingAlertId={dismissingAlertId}
+        onDismiss={dismissAlert}
+      />
 
       {primaryDevice ? (
         <CameraCard device={summary?.device || primaryDevice} />

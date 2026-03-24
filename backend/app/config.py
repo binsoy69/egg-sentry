@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     alert_uncertain_threshold: int = 3
     alert_missing_data_hours: int = 6
     alert_cooldown_minutes: int = 60
+    alert_evaluator_interval_seconds: int = 120
+    alert_daytime_start_hour: int = 6
+    alert_daytime_end_hour: int = 18
+    alert_low_production_hour: int = 18
+    enable_alert_scheduler: bool = True
 
     seed_admin_username: str = "admin"
     seed_admin_password: str = "admin123"

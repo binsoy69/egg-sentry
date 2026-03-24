@@ -213,17 +213,38 @@ def average_per_day(total: int, day_count: int) -> float:
         return 0.0
     return round(total / day_count, 1)
 
-def alert_exists_recently(db: Session, *, device_id: int | None, alert_type: str) -> bool:
-    cutoff = utc_now() - timedelta(minutes=settings.alert_cooldown_minutes)
-    stmt = select(Alert.id).where(
-        Alert.type == alert_type,
-        Alert.device_id == device_id,
-        Alert.created_at >= cutoff,
+
+def get_active_alert(db: Session, *, device_id: int | None, alert_type: str) -> Alert | None:
+    stmt = (
+        select(Alert)
+        .where(
+            Alert.type == alert_type,
+            Alert.device_id == device_id,
+            Alert.is_dismissed.is_(False),
+        )
+        .order_by(Alert.created_at.desc())
     )
-    return db.execute(stmt).first() is not None
+    return db.execute(stmt).scalars().first()
 
 
-def create_alert(
+def alert_exists_recently(db: Session, *, device_id: int | None, alert_type: str) -> bool:
+    stmt = (
+        select(Alert)
+        .where(
+            Alert.type == alert_type,
+            Alert.device_id == device_id,
+        )
+        .order_by(Alert.created_at.desc())
+    )
+    latest = db.execute(stmt).scalars().first()
+    if latest is None:
+        return False
+    cutoff = utc_now() - timedelta(minutes=settings.alert_cooldown_minutes)
+    reference_time = latest.dismissed_at or latest.created_at
+    return ensure_aware(reference_time) >= cutoff
+
+
+def create_or_refresh_alert(
     db: Session,
     *,
     device: Device | None,
@@ -232,12 +253,41 @@ def create_alert(
     message: str,
 ) -> Alert | None:
     device_fk = device.id if device else None
+    active_alert = get_active_alert(db, device_id=device_fk, alert_type=alert_type)
+    if active_alert is not None:
+        active_alert.severity = severity
+        active_alert.message = message
+        db.add(active_alert)
+        db.flush()
+        return active_alert
+
     if alert_exists_recently(db, device_id=device_fk, alert_type=alert_type):
         return None
+
     alert = Alert(device_id=device_fk, type=alert_type, severity=severity, message=message)
     db.add(alert)
     db.flush()
     return alert
+
+
+def resolve_alerts(db: Session, *, device: Device | None, alert_type: str) -> int:
+    device_fk = device.id if device else None
+    stmt = select(Alert).where(
+        Alert.type == alert_type,
+        Alert.device_id == device_fk,
+        Alert.is_dismissed.is_(False),
+    )
+    active_alerts = list(db.execute(stmt).scalars().all())
+    if not active_alerts:
+        return 0
+
+    resolved_at = utc_now()
+    for alert in active_alerts:
+        alert.is_dismissed = True
+        alert.dismissed_at = resolved_at
+        db.add(alert)
+    db.flush()
+    return len(active_alerts)
 
 
 def evaluate_uncertain_detection_alert(db: Session, device: Device) -> None:
@@ -249,21 +299,25 @@ def evaluate_uncertain_detection_alert(db: Session, device: Device) -> None:
     )
     unknown_count = int(db.execute(stmt).scalar_one() or 0)
     if unknown_count > settings.alert_uncertain_threshold:
-        create_alert(
+        create_or_refresh_alert(
             db,
             device=device,
             alert_type="uncertain_detection",
             severity="info",
             message=f"Multiple uncertain detections from {device.name} in the last hour - check camera alignment",
         )
+        return
+
+    resolve_alerts(db, device=device, alert_type="uncertain_detection")
 
 
 def evaluate_device_offline_alert(db: Session, device: Device) -> None:
     is_online, _ = status_for_device(device)
     if is_online or not device.last_heartbeat:
+        resolve_alerts(db, device=device, alert_type="device_offline")
         return
     minutes = int((utc_now() - ensure_aware(device.last_heartbeat)).total_seconds() // 60)
-    create_alert(
+    create_or_refresh_alert(
         db,
         device=device,
         alert_type="device_offline",
@@ -274,7 +328,8 @@ def evaluate_device_offline_alert(db: Session, device: Device) -> None:
 
 def evaluate_missing_data_alert(db: Session, device: Device) -> None:
     local_now = utc_now().astimezone(app_tz())
-    if local_now.hour < 6 or local_now.hour >= 18:
+    if local_now.hour < settings.alert_daytime_start_hour or local_now.hour >= settings.alert_daytime_end_hour:
+        resolve_alerts(db, device=device, alert_type="missing_data")
         return
     cutoff = utc_now() - timedelta(hours=settings.alert_missing_data_hours)
     stmt = select(EggDetection.id).where(
@@ -282,34 +337,42 @@ def evaluate_missing_data_alert(db: Session, device: Device) -> None:
         EggDetection.detected_at >= cutoff,
     )
     if db.execute(stmt).first() is None:
-        create_alert(
+        create_or_refresh_alert(
             db,
             device=device,
             alert_type="missing_data",
             severity="warning",
             message=f"No egg detections from {device.name} in the last {settings.alert_missing_data_hours} hours",
         )
+        return
+
+    resolve_alerts(db, device=device, alert_type="missing_data")
 
 
 def evaluate_low_production_alert(db: Session, device: Device) -> None:
     local_now = utc_now().astimezone(app_tz())
-    if local_now.hour < 18:
+    if local_now.hour < settings.alert_low_production_hour:
+        resolve_alerts(db, device=device, alert_type="low_production")
         return
     today = local_now.date()
     today_count = count_for_day(db, device, today)
     previous_counts = [count_for_day(db, device, today - timedelta(days=offset)) for offset in range(1, 8)]
     baseline_days = [value for value in previous_counts if value > 0]
     if not baseline_days:
+        resolve_alerts(db, device=device, alert_type="low_production")
         return
     average = sum(baseline_days) / len(baseline_days)
     if today_count < average * settings.alert_low_production_threshold:
-        create_alert(
+        create_or_refresh_alert(
             db,
             device=device,
             alert_type="low_production",
             severity="info",
             message=f"Today's egg count ({today_count}) is below the daily average ({average:.1f})",
         )
+        return
+
+    resolve_alerts(db, device=device, alert_type="low_production")
 
 
 def evaluate_alerts(db: Session, device: Device | None = None) -> None:
@@ -318,6 +381,11 @@ def evaluate_alerts(db: Session, device: Device | None = None) -> None:
     else:
         devices = list(db.execute(select(Device)).scalars().all())
     for current in devices:
+        if not current.is_active:
+            for alert_type in ("device_offline", "low_production", "uncertain_detection", "missing_data"):
+                resolve_alerts(db, device=current, alert_type=alert_type)
+            continue
         evaluate_device_offline_alert(db, current)
+        evaluate_uncertain_detection_alert(db, current)
         evaluate_missing_data_alert(db, current)
         evaluate_low_production_alert(db, current)
