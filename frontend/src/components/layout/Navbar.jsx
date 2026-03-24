@@ -27,17 +27,17 @@ const Navbar = () => {
   return (
     <nav className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 backdrop-blur">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 justify-between">
-          <div className="flex">
-            <div className="flex flex-shrink-0 items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-yolk-yellow">
+        <div className="flex min-h-16 items-center justify-between gap-3 py-3 sm:py-0">
+          <div className="flex min-w-0">
+            <div className="flex min-w-0 flex-shrink items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-yolk-yellow">
                 <Egg className="h-5 w-5 text-white" />
               </div>
-              <div className="leading-tight">
-                <span className="block text-lg font-bold text-dark-slate">
+              <div className="min-w-0 leading-tight">
+                <span className="block truncate text-base font-bold text-dark-slate sm:text-lg">
                   Egg<span className="text-yolk-yellow">Sentry</span>
                 </span>
-                <span className="block text-[10px] font-semibold tracking-[0.22em] text-slate-400">
+                <span className="hidden text-[10px] font-semibold tracking-[0.22em] text-slate-400 sm:block">
                   USEP POULTRY
                 </span>
               </div>
@@ -67,41 +67,41 @@ const Navbar = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <span className="hidden text-sm font-medium text-slate-500 sm:block">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+            <span className="hidden max-w-40 truncate text-sm font-medium text-slate-500 sm:block">
               {user?.display_name || user?.username}
             </span>
             <button
               onClick={logout}
-              className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition-colors duration-200 hover:bg-red-50 hover:text-alert-red"
+              className="rounded-lg px-2.5 py-2 text-sm font-medium text-slate-500 transition-colors duration-200 hover:bg-red-50 hover:text-alert-red sm:px-3"
               title="Logout"
             >
-              <span className="inline-flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 sm:gap-2">
                 <LogOut className="h-4 w-4" />
-                Logout
+                <span className="hidden sm:inline">Logout</span>
               </span>
             </button>
           </div>
         </div>
       </div>
 
-      <div className="flex justify-around border-t border-gray-100 bg-white py-2 sm:hidden">
-        <NavLink to="/" className={({ isActive }) => `flex flex-col items-center p-2 rounded-lg ${isActive ? 'text-yolk-yellow' : 'text-slate-500'}`} end>
+      <div className="safe-bottom flex justify-around border-t border-gray-100 bg-white py-2 sm:hidden">
+        <NavLink to="/" className={({ isActive }) => `flex min-w-0 flex-col items-center rounded-lg p-2 ${isActive ? 'text-yolk-yellow' : 'text-slate-500'}`} end>
           <LayoutDashboard className="h-5 w-5" />
           <span className="mt-1 text-[10px] font-medium">Dashboard</span>
         </NavLink>
-        <NavLink to="/history" className={({ isActive }) => `flex flex-col items-center p-2 rounded-lg ${isActive ? 'text-yolk-yellow' : 'text-slate-500'}`}>
+        <NavLink to="/history" className={({ isActive }) => `flex min-w-0 flex-col items-center rounded-lg p-2 ${isActive ? 'text-yolk-yellow' : 'text-slate-500'}`}>
           <History className="h-5 w-5" />
           <span className="mt-1 text-[10px] font-medium">History</span>
         </NavLink>
-        <NavLink to="/settings" className={({ isActive }) => `flex flex-col items-center p-2 rounded-lg ${isActive ? 'text-yolk-yellow' : 'text-slate-500'}`}>
+        <NavLink to="/settings" className={({ isActive }) => `flex min-w-0 flex-col items-center rounded-lg p-2 ${isActive ? 'text-yolk-yellow' : 'text-slate-500'}`}>
           <Settings className="h-5 w-5" />
           <span className="mt-1 text-[10px] font-medium">Settings</span>
         </NavLink>
         <button
           type="button"
           onClick={() => navigate('/?modifyCamera=1')}
-          className={`flex flex-col items-center p-2 rounded-lg ${
+          className={`flex min-w-0 flex-col items-center rounded-lg p-2 ${
             location.pathname === '/' && location.search.includes('modifyCamera=1') ? 'text-yolk-yellow' : 'text-slate-500'
           }`}
         >

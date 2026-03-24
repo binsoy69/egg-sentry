@@ -34,6 +34,20 @@ class PasswordChangeResponse(BaseModel):
     message: str
 
 
+class ClearDataRequest(BaseModel):
+    current_password: str
+
+
+class ClearDataResponse(BaseModel):
+    success: bool = True
+    message: str
+    detections_cleared: int
+    snapshots_cleared: int
+    collections_cleared: int
+    alerts_cleared: int
+    devices_reset: int
+
+
 class DeviceHeartbeatRequest(BaseModel):
     device_id: str
     timestamp: datetime

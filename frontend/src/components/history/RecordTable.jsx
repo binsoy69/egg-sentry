@@ -25,7 +25,21 @@ const RecordTable = ({ records, loading }) => {
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="overflow-x-auto">
+      <div className="divide-y divide-slate-100 md:hidden">
+        {records.map((record) => (
+          <div key={record.id} className="space-y-3 px-4 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-dark-slate">{record.date}</p>
+                <p className="mt-1 text-sm text-slate-500">{record.detected_at}</p>
+              </div>
+              <SizeBadge size={record.size_display} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="min-w-full divide-y divide-slate-200">
           <thead className="bg-slate-50">
             <tr>

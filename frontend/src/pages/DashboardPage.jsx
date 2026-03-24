@@ -123,9 +123,12 @@ const DashboardPage = () => {
       return;
     }
     await updateDevice(selectedDevice.device_id, formData);
-    await refetchDevices();
+    await Promise.all([refetchDevices(), refetchDashboard()]);
   };
 
+  const cameraDevice = primaryDevice
+    ? { ...(summary?.device ?? {}), ...primaryDevice }
+    : null;
   const currentEggs = summary?.current_eggs ?? summary?.device?.current_count ?? primaryDevice?.current_count ?? 0;
   const collectedToday = summary?.collected_today ?? summary?.device?.collected_today ?? primaryDevice?.collected_today ?? 0;
   const totalToday = summary?.today_eggs ?? summary?.total_today ?? currentEggs + collectedToday;
@@ -163,7 +166,7 @@ const DashboardPage = () => {
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-dark-slate">Dashboard</h1>
+          <h1 className="text-2xl font-bold text-dark-slate sm:text-3xl">Dashboard</h1>
           <p className="mt-2 text-sm text-gray-500">Egg production overview, live nest count, and collection tracking</p>
         </div>
 
@@ -174,7 +177,7 @@ const DashboardPage = () => {
             setCollectModalOpen(true);
           }}
           disabled={!primaryDevice || currentEggs <= 0 || dashLoading || devicesLoading}
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-yolk-yellow px-5 py-3 text-sm font-semibold text-white transition hover:bg-yolk-yellow/90 disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-yolk-yellow px-5 py-3 text-sm font-semibold text-white transition hover:bg-yolk-yellow/90 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
         >
           <HandCoins className="h-4 w-4" />
           Collect Eggs
@@ -200,9 +203,9 @@ const DashboardPage = () => {
         onDismiss={dismissAlert}
       />
 
-      {primaryDevice ? (
+      {cameraDevice ? (
         <CameraCard
-          device={summary?.device || primaryDevice}
+          device={cameraDevice}
           currentCount={currentEggs}
           collectedToday={collectedToday}
         />
@@ -289,7 +292,7 @@ const DashboardPage = () => {
       <CollectionHistoryPanel entries={collectionHistory} />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div className="xl:col-span-2 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+        <div className="xl:col-span-2 rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
           <h2 className="mb-4 text-lg font-semibold text-dark-slate">Daily Egg Production</h2>
           <div className="flex min-h-[16rem] items-center justify-center">
             {dashLoading || devicesLoading ? (
@@ -300,7 +303,7 @@ const DashboardPage = () => {
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
           <h2 className="mb-4 text-lg font-semibold text-dark-slate">Egg Size Distribution</h2>
           <div className="flex min-h-[16rem] items-center justify-center">
             {dashLoading || devicesLoading ? (

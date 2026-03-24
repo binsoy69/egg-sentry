@@ -20,9 +20,9 @@ const DailyChart = ({ data }) => {
   }
 
   return (
-    <div className="h-72 w-full">
+    <div className="h-64 w-full sm:h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+        <AreaChart data={data} margin={{ top: 5, right: 8, left: -18, bottom: 5 }}>
           <defs>
             <linearGradient id="egg-production-fill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#FDB813" stopOpacity={0.35} />
@@ -35,13 +35,13 @@ const DailyChart = ({ data }) => {
             tickFormatter={formatXAxis}
             axisLine={false}
             tickLine={false}
-            tick={{ fill: '#6B7280', fontSize: 12 }}
+            tick={{ fill: '#6B7280', fontSize: 11 }}
             dy={10}
           />
           <YAxis
             axisLine={false}
             tickLine={false}
-            tick={{ fill: '#6B7280', fontSize: 12 }}
+            tick={{ fill: '#6B7280', fontSize: 11 }}
             dx={-10}
           />
           <Tooltip

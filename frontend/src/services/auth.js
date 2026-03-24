@@ -24,6 +24,13 @@ export const authService = {
     return response.data;
   },
 
+  clearData: async (currentPassword) => {
+    const response = await api.post('/auth/clear-data', {
+      current_password: currentPassword,
+    });
+    return response.data;
+  },
+
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');

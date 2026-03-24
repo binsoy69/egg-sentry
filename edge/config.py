@@ -43,7 +43,8 @@ class EdgeConfig:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
+    # Accept UTF-8 with or without BOM because Windows editors often emit BOM.
+    with path.open("r", encoding="utf-8-sig") as handle:
         return json.load(handle)
 
 

@@ -1,6 +1,7 @@
 ﻿from functools import lru_cache
 from typing import List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -47,6 +48,17 @@ class Settings(BaseSettings):
     seed_device_location: str = "Coop A - Layer Section"
     seed_device_num_cages: int = 4
     seed_device_num_chickens: int = 4
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def normalize_debug(cls, value):
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"release", "prod", "production"}:
+                return False
+            if normalized in {"debug", "dev", "development"}:
+                return True
+        return value
 
     @property
     def cors_origins(self) -> List[str]:

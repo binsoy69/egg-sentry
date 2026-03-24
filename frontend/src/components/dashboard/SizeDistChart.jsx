@@ -33,12 +33,12 @@ const SizeDistChart = ({ data }) => {
   };
 
   return (
-    <div className="h-72 w-full">
+    <div className="h-64 w-full sm:h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+        <BarChart data={data} margin={{ top: 10, right: 6, left: -18, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-          <XAxis dataKey="display" axisLine={false} tickLine={false} tick={{ fill: '#6B7280', fontSize: 12 }} />
-          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6B7280', fontSize: 12 }} />
+          <XAxis dataKey="display" axisLine={false} tickLine={false} tick={{ fill: '#6B7280', fontSize: 11 }} />
+          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6B7280', fontSize: 11 }} />
           <Tooltip content={<CustomTooltip />} />
           <Bar dataKey="count" radius={[8, 8, 0, 0]}>
             {data.map((entry) => (

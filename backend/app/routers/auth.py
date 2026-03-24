@@ -7,7 +7,16 @@ from app.auth import create_access_token, get_password_hash, verify_password
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import User
-from app.schemas import ChangePasswordRequest, LoginRequest, PasswordChangeResponse, TokenResponse, UserRead
+from app.schemas import (
+    ChangePasswordRequest,
+    ClearDataRequest,
+    ClearDataResponse,
+    LoginRequest,
+    PasswordChangeResponse,
+    TokenResponse,
+    UserRead,
+)
+from app.services import clear_runtime_data
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -56,3 +65,17 @@ def change_password(
     db.add(current_user)
     db.commit()
     return PasswordChangeResponse(message="Password updated successfully")
+
+
+@router.post("/clear-data", response_model=ClearDataResponse)
+def clear_data(
+    payload: ClearDataRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+
+    result = clear_runtime_data(db)
+    db.commit()
+    return ClearDataResponse(message="Runtime egg data cleared successfully", **result)

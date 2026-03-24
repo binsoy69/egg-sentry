@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { KeyRound, ShieldCheck } from 'lucide-react';
+import { KeyRound, ShieldCheck, Trash2 } from 'lucide-react';
 
+import ClearDataModal from '../components/settings/ClearDataModal';
 import { authService } from '../services/auth';
 
 const SettingsPage = () => {
@@ -12,6 +13,10 @@ const SettingsPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [clearDataOpen, setClearDataOpen] = useState(false);
+  const [clearLoading, setClearLoading] = useState(false);
+  const [clearError, setClearError] = useState('');
+  const [clearSuccess, setClearSuccess] = useState('');
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -41,6 +46,24 @@ const SettingsPage = () => {
       setError(err.response?.data?.detail || err.message || 'Failed to update password.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClearData = async (currentPassword) => {
+    setClearLoading(true);
+    setClearError('');
+    setClearSuccess('');
+
+    try {
+      const response = await authService.clearData(currentPassword);
+      setClearSuccess(
+        `Cleared ${response.detections_cleared} detections, ${response.snapshots_cleared} snapshots, ${response.collections_cleared} collections, and ${response.alerts_cleared} alerts.`
+      );
+      setClearDataOpen(false);
+    } catch (err) {
+      setClearError(err.response?.data?.detail || err.message || 'Failed to clear data.');
+    } finally {
+      setClearLoading(false);
     }
   };
 
@@ -151,9 +174,53 @@ const SettingsPage = () => {
                 New passwords must be at least 6 characters and cannot match the current password.
               </p>
             </div>
+
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-alert-red">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">Data reset</p>
+                  <p className="mt-2 text-sm leading-6 text-red-800">
+                    Clear detections, counts, collections, and alerts to restart local tracking while keeping accounts and camera records.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClearError('');
+                      setClearDataOpen(true);
+                    }}
+                    className="mt-4 rounded-full bg-alert-red px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600"
+                  >
+                    Clear Data
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      {clearSuccess ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {clearSuccess}
+        </div>
+      ) : null}
+
+      {clearDataOpen ? (
+        <ClearDataModal
+          onClose={() => {
+            if (!clearLoading) {
+              setClearError('');
+              setClearDataOpen(false);
+            }
+          }}
+          onConfirm={handleClearData}
+          loading={clearLoading}
+          error={clearError}
+        />
+      ) : null}
     </div>
   );
 };

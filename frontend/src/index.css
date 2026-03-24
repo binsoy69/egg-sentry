@@ -26,3 +26,9 @@
     min-height: 100vh;
   }
 }
+
+@layer utilities {
+  .safe-bottom {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+}

@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -151,6 +151,27 @@ def current_count_for_device(db: Session, device: Device) -> int:
     if snapshot is None:
         return 0
     return max(snapshot.total_count, 0)
+
+
+def clear_runtime_data(db: Session) -> dict[str, int]:
+    detection_count = db.execute(delete(EggDetection)).rowcount or 0
+    snapshot_count = db.execute(delete(CountSnapshot)).rowcount or 0
+    collection_count = db.execute(delete(EggCollection)).rowcount or 0
+    alert_count = db.execute(delete(Alert)).rowcount or 0
+
+    device_count = 0
+    for device in db.execute(select(Device)).scalars().all():
+        device.last_heartbeat = None
+        db.add(device)
+        device_count += 1
+
+    return {
+        "detections_cleared": int(detection_count),
+        "snapshots_cleared": int(snapshot_count),
+        "collections_cleared": int(collection_count),
+        "alerts_cleared": int(alert_count),
+        "devices_reset": device_count,
+    }
 
 
 def collected_count_for_day(db: Session, device: Device, target_date: date) -> int:
