@@ -3,11 +3,11 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token, verify_password
+from app.auth import create_access_token, get_password_hash, verify_password
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import User
-from app.schemas import LoginRequest, TokenResponse, UserRead
+from app.schemas import ChangePasswordRequest, LoginRequest, PasswordChangeResponse, TokenResponse, UserRead
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -39,3 +39,20 @@ def token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @router.get("/me", response_model=UserRead)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.post("/change-password", response_model=PasswordChangeResponse)
+def change_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be different")
+
+    current_user.password_hash = get_password_hash(payload.new_password)
+    db.add(current_user)
+    db.commit()
+    return PasswordChangeResponse(message="Password updated successfully")

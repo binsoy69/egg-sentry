@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     cors_origins_raw: str = "http://localhost:5173,http://127.0.0.1:5173"
     app_timezone: str = "Asia/Manila"
     auto_create_schema: bool = True
+    collection_drop_threshold: int = 2
 
     alert_heartbeat_timeout_minutes: int = 5
     alert_low_production_threshold: float = 0.5

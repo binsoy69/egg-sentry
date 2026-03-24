@@ -22,6 +22,8 @@ class User(Base):
         DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now()
     )
 
+    collections: Mapped[list["EggCollection"]] = relationship(back_populates="user")
+
 
 class Device(Base):
     __tablename__ = "devices"
@@ -46,6 +48,7 @@ class Device(Base):
 
     detections: Mapped[list["EggDetection"]] = relationship(back_populates="device", cascade="all, delete-orphan")
     snapshots: Mapped[list["CountSnapshot"]] = relationship(back_populates="device", cascade="all, delete-orphan")
+    collections: Mapped[list["EggCollection"]] = relationship(back_populates="device", cascade="all, delete-orphan")
     alerts: Mapped[list["Alert"]] = relationship(back_populates="device")
 
 
@@ -75,6 +78,25 @@ class CountSnapshot(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
 
     device: Mapped[Device] = relationship(back_populates="snapshots")
+
+
+class EggCollection(Base):
+    __tablename__ = "egg_collections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    collected_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    before_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    after_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    source: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now()
+    )
+
+    device: Mapped[Device] = relationship(back_populates="collections")
+    user: Mapped[User | None] = relationship(back_populates="collections")
 
 
 class Alert(Base):

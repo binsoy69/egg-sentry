@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { Camera, History, LayoutDashboard, LogOut, Egg } from 'lucide-react';
+import { Camera, History, LayoutDashboard, LogOut, Egg, Settings } from 'lucide-react';
 
 import { useAuth } from '../../hooks/useAuth';
 
@@ -52,6 +52,10 @@ const Navbar = () => {
                 <History className="mr-2 h-4 w-4" />
                 History
               </NavLink>
+              <NavLink to="/settings" className={getNavClass}>
+                <Settings className="mr-2 h-4 w-4" />
+                Settings
+              </NavLink>
               <button
                 type="button"
                 onClick={() => navigate('/?modifyCamera=1')}
@@ -89,6 +93,10 @@ const Navbar = () => {
         <NavLink to="/history" className={({ isActive }) => `flex flex-col items-center p-2 rounded-lg ${isActive ? 'text-yolk-yellow' : 'text-slate-500'}`}>
           <History className="h-5 w-5" />
           <span className="mt-1 text-[10px] font-medium">History</span>
+        </NavLink>
+        <NavLink to="/settings" className={({ isActive }) => `flex flex-col items-center p-2 rounded-lg ${isActive ? 'text-yolk-yellow' : 'text-slate-500'}`}>
+          <Settings className="h-5 w-5" />
+          <span className="mt-1 text-[10px] font-medium">Settings</span>
         </NavLink>
         <button
           type="button"

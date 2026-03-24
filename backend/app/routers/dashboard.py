@@ -19,12 +19,16 @@ from app.services import (
     app_tz,
     average_per_day,
     best_day_from_detections,
+    build_collection_entry,
+    collected_count_for_day,
     count_for_day,
+    current_count_for_device,
     current_local_date,
     daily_chart_points,
     evaluate_alerts,
     get_device_by_identifier,
     get_primary_device,
+    list_collections_for_day,
     month_bounds,
     query_detections,
     size_display,
@@ -57,12 +61,15 @@ def summary(
 
     all_detections = query_detections(db, device=device)
     today = current_local_date()
-    today_count = count_for_day(db, device, today)
+    current_count = current_count_for_device(db, device)
+    collected_today = collected_count_for_day(db, device, today)
+    today_count = current_count + collected_today
     previous_day_total = count_for_day(db, device, today - timedelta(days=1))
     best_date, best_count = best_day_from_detections(all_detections)
     top_size, top_size_count = top_size_from_detections(all_detections)
     size_counts = aggregate_sizes(all_detections)
     is_online, status = status_for_device(device)
+    collection_history = list_collections_for_day(db, device, today)
 
     device_summary = DashboardDeviceSummary(
         id=device.id,
@@ -72,18 +79,23 @@ def summary(
         num_cages=device.num_cages,
         num_chickens=device.num_chickens,
         today_count=today_count,
+        current_count=current_count,
+        collected_today=collected_today,
         is_online=is_online,
         status=status,
     )
     return DashboardSummaryResponse(
         today_eggs=today_count,
         all_time_eggs=len(all_detections),
+        current_eggs=current_count,
+        collected_today=collected_today,
         best_day={"date": best_date.isoformat() if best_date else None, "count": best_count},
         top_size={"size": top_size, "count": top_size_count, "size_display": size_display(top_size)},
         device=device_summary,
         total_today=today_count,
         previous_day_total=previous_day_total,
         size_distribution={size_display(size): count for size, count in size_counts.items() if count > 0},
+        collection_history=[build_collection_entry(item) for item in collection_history],
     )
 
 

@@ -3,7 +3,7 @@
 
 def create_event_payload(*, timestamp: datetime | None = None, sizes: list[str] | None = None, total_count: int | None = None):
     event_time = timestamp or datetime.now(timezone.utc)
-    egg_sizes = sizes or ["medium", "large"]
+    egg_sizes = ["medium", "large"] if sizes is None else sizes
     breakdown = {"small": 0, "medium": 0, "large": 0, "extra-large": 0, "jumbo": 0, "unknown": 0}
     for size in egg_sizes:
         breakdown[size] = breakdown.get(size, 0) + 1

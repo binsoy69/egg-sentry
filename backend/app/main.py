@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
-from app.routers import alerts, auth, dashboard, devices, events, history
+from app.routers import alerts, auth, collections, dashboard, devices, events, history
 from app.seed import seed_defaults
 from app.services import evaluate_alerts
 
@@ -67,3 +67,4 @@ app.include_router(devices.router, prefix=settings.api_prefix)
 app.include_router(dashboard.router, prefix=settings.api_prefix)
 app.include_router(history.router, prefix=settings.api_prefix)
 app.include_router(alerts.router, prefix=settings.api_prefix)
+app.include_router(collections.router, prefix=settings.api_prefix)

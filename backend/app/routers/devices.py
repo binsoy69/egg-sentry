@@ -12,7 +12,14 @@ from app.schemas import (
     DeviceRead,
     DeviceUpdateRequest,
 )
-from app.services import count_for_day, current_local_date, evaluate_alerts, get_device_by_identifier, status_for_device
+from app.services import (
+    collected_count_for_day,
+    current_count_for_device,
+    current_local_date,
+    evaluate_alerts,
+    get_device_by_identifier,
+    status_for_device,
+)
 
 
 router = APIRouter(prefix="/devices", tags=["devices"])
@@ -20,6 +27,9 @@ router = APIRouter(prefix="/devices", tags=["devices"])
 
 def _serialize_device(db: Session, device: Device) -> DeviceRead:
     is_online, status = status_for_device(device)
+    today = current_local_date()
+    current_count = current_count_for_device(db, device)
+    collected_today = collected_count_for_day(db, device, today)
     return DeviceRead(
         id=device.id,
         device_id=device.device_id,
@@ -35,7 +45,9 @@ def _serialize_device(db: Session, device: Device) -> DeviceRead:
         created_at=device.created_at,
         is_online=is_online,
         status=status,
-        today_count=count_for_day(db, device, current_local_date()),
+        today_count=current_count + collected_today,
+        current_count=current_count,
+        collected_today=collected_today,
         is_config_active=device.is_active,
     )
 

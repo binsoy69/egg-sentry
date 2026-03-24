@@ -8,6 +8,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import HistoryPage from './pages/HistoryPage';
+import SettingsPage from './pages/SettingsPage';
 
 const MainLayout = ({ children }) => {
   return (
@@ -39,6 +40,14 @@ function AppRoutes() {
         <ProtectedRoute>
           <MainLayout>
             <HistoryPage />
+          </MainLayout>
+        </ProtectedRoute>
+      } />
+
+      <Route path="/settings" element={
+        <ProtectedRoute>
+          <MainLayout>
+            <SettingsPage />
           </MainLayout>
         </ProtectedRoute>
       } />

@@ -24,6 +24,16 @@ class UserRead(BaseModel):
     created_at: datetime
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6)
+
+
+class PasswordChangeResponse(BaseModel):
+    success: bool = True
+    message: str
+
+
 class DeviceHeartbeatRequest(BaseModel):
     device_id: str
     timestamp: datetime
@@ -68,6 +78,8 @@ class DeviceRead(BaseModel):
     is_online: bool
     status: Literal["online", "offline"]
     today_count: int = 0
+    current_count: int = 0
+    collected_today: int = 0
     is_config_active: bool
 
 
@@ -92,6 +104,28 @@ class EventIngestResponse(BaseModel):
     daily_total: int
 
 
+class CollectionCreateRequest(BaseModel):
+    device_id: str | None = None
+
+
+class CollectionEntryRead(BaseModel):
+    id: int
+    device_id: str
+    count: int
+    source: Literal["manual", "automatic"]
+    before_count: int
+    after_count: int
+    collected_at: datetime
+    collected_at_display: str
+
+
+class CollectionCreateResponse(BaseModel):
+    entry: CollectionEntryRead
+    current_eggs: int
+    collected_today: int
+    total_today: int
+
+
 class BestDay(BaseModel):
     date: str | None = None
     count: int = 0
@@ -111,6 +145,8 @@ class DashboardDeviceSummary(BaseModel):
     num_cages: int
     num_chickens: int
     today_count: int
+    current_count: int
+    collected_today: int
     is_online: bool
     status: Literal["online", "offline"]
 
@@ -118,12 +154,15 @@ class DashboardDeviceSummary(BaseModel):
 class DashboardSummaryResponse(BaseModel):
     today_eggs: int
     all_time_eggs: int
+    current_eggs: int
+    collected_today: int
     best_day: BestDay
     top_size: TopSize
     device: DashboardDeviceSummary | None = None
     total_today: int
     previous_day_total: int
     size_distribution: dict[str, int]
+    collection_history: list[CollectionEntryRead] = Field(default_factory=list)
 
 
 class PeriodStatsResponse(BaseModel):

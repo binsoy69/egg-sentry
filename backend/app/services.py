@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.constants import SIZE_DISPLAY_MAP, SIZE_ORDER
-from app.models import Alert, Device, EggDetection
-from app.schemas import HistoryRecord
+from app.models import Alert, CountSnapshot, Device, EggCollection, EggDetection, User
+from app.schemas import CollectionEntryRead, HistoryRecord
 
 
 settings = get_settings()
@@ -135,6 +135,97 @@ def count_for_day(db: Session, device: Device, target_date: date) -> int:
         EggDetection.detected_at < end,
     )
     return int(db.execute(stmt).scalar_one() or 0)
+
+
+def latest_snapshot_for_device(db: Session, device: Device) -> CountSnapshot | None:
+    stmt = (
+        select(CountSnapshot)
+        .where(CountSnapshot.device_id == device.id)
+        .order_by(CountSnapshot.captured_at.desc(), CountSnapshot.id.desc())
+    )
+    return db.execute(stmt).scalars().first()
+
+
+def current_count_for_device(db: Session, device: Device) -> int:
+    snapshot = latest_snapshot_for_device(db, device)
+    if snapshot is None:
+        return 0
+    return max(snapshot.total_count, 0)
+
+
+def collected_count_for_day(db: Session, device: Device, target_date: date) -> int:
+    start, end = local_day_bounds(target_date)
+    stmt = select(func.sum(EggCollection.collected_count)).where(
+        EggCollection.device_id == device.id,
+        EggCollection.collected_at >= start,
+        EggCollection.collected_at < end,
+    )
+    return int(db.execute(stmt).scalar_one() or 0)
+
+
+def list_collections_for_day(db: Session, device: Device, target_date: date) -> list[EggCollection]:
+    start, end = local_day_bounds(target_date)
+    stmt = (
+        select(EggCollection)
+        .where(
+            EggCollection.device_id == device.id,
+            EggCollection.collected_at >= start,
+            EggCollection.collected_at < end,
+        )
+        .order_by(EggCollection.collected_at.desc(), EggCollection.id.desc())
+    )
+    collections = list(db.execute(stmt).scalars().all())
+    for collection in collections:
+        _ = collection.device
+    return collections
+
+
+def build_collection_entry(collection: EggCollection) -> CollectionEntryRead:
+    local_dt = localize(collection.collected_at)
+    device = collection.device.device_id if collection.device else ""
+    return CollectionEntryRead(
+        id=collection.id,
+        device_id=device,
+        count=collection.collected_count,
+        source="manual" if collection.source == "manual" else "automatic",
+        before_count=collection.before_count,
+        after_count=collection.after_count,
+        collected_at=ensure_aware(collection.collected_at),
+        collected_at_display=local_dt.strftime("%b %d, %Y, %I:%M %p"),
+    )
+
+
+def should_infer_collection(previous_count: int, new_count: int) -> bool:
+    if previous_count <= new_count:
+        return False
+    drop = previous_count - new_count
+    return drop >= settings.collection_drop_threshold or new_count == 0
+
+
+def create_collection(
+    db: Session,
+    *,
+    device: Device,
+    collected_count: int,
+    before_count: int,
+    after_count: int,
+    source: str,
+    collected_at: datetime,
+    user: User | None = None,
+) -> EggCollection:
+    collection = EggCollection(
+        device_id=device.id,
+        user_id=user.id if user else None,
+        collected_count=collected_count,
+        before_count=before_count,
+        after_count=after_count,
+        source=source,
+        collected_at=ensure_aware(collected_at),
+    )
+    db.add(collection)
+    db.flush()
+    _ = collection.device
+    return collection
 
 
 def aggregate_counts_by_day(detections: list[EggDetection]) -> dict[date, int]:

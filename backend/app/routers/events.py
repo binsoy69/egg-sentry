@@ -9,12 +9,15 @@ from app.models import CountSnapshot, Device, EggDetection
 from app.schemas import EventIngestRequest, EventIngestResponse
 from app.services import (
     build_history_record,
+    create_collection,
     count_for_day,
     current_local_date,
     ensure_aware,
     evaluate_alerts,
     get_device_by_identifier,
+    latest_snapshot_for_device,
     query_detections,
+    should_infer_collection,
 )
 
 
@@ -30,6 +33,7 @@ def ingest_events(
     if payload.device_id != current_device.device_id:
         raise HTTPException(status_code=400, detail="Device ID does not match authenticated device")
 
+    previous_snapshot = latest_snapshot_for_device(db, current_device)
     db.add(
         CountSnapshot(
             device_id=current_device.id,
@@ -38,6 +42,17 @@ def ingest_events(
             captured_at=payload.timestamp,
         )
     )
+
+    if previous_snapshot and should_infer_collection(previous_snapshot.total_count, payload.total_count):
+        create_collection(
+            db,
+            device=current_device,
+            collected_count=previous_snapshot.total_count - payload.total_count,
+            before_count=previous_snapshot.total_count,
+            after_count=payload.total_count,
+            source="automatic",
+            collected_at=payload.timestamp,
+        )
 
     events_created = 0
     for egg in payload.new_eggs:
