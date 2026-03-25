@@ -96,6 +96,24 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> EdgeConfig:
     return apply_environment_overrides(config)
 
 
+def save_size_thresholds(
+    thresholds: SizeThresholds,
+    path: str | Path = DEFAULT_CONFIG_PATH,
+) -> Path:
+    config_path = Path(path).resolve()
+    data = _read_json(config_path)
+    data["size_thresholds"] = {
+        "small_max": float(thresholds.small_max),
+        "medium_max": float(thresholds.medium_max),
+        "large_max": float(thresholds.large_max),
+        "xl_max": float(thresholds.xl_max),
+    }
+    with config_path.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2)
+        handle.write("\n")
+    return config_path
+
+
 def apply_environment_overrides(config: EdgeConfig) -> EdgeConfig:
     model_path = Path(os.getenv("MODEL_PATH", str(config.model_path)))
     offline_queue_path = Path(os.getenv("OFFLINE_QUEUE_PATH", str(config.offline_queue_path)))

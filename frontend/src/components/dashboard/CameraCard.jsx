@@ -15,7 +15,7 @@ const CameraCard = ({ device, currentCount = 0, collectedToday = 0 }) => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 text-left sm:grid-cols-3 md:min-w-[20rem] md:gap-5">
+        <div className="grid grid-cols-2 gap-4 text-left sm:grid-cols-4 md:min-w-[26rem] md:gap-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Cages</p>
             <p className="mt-1 text-2xl font-bold text-dark-slate">{device.num_cages ?? 0}</p>
@@ -23,6 +23,10 @@ const CameraCard = ({ device, currentCount = 0, collectedToday = 0 }) => {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Chickens</p>
             <p className="mt-1 text-2xl font-bold text-dark-slate">{device.num_chickens ?? 0}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Chicken Age</p>
+            <p className="mt-1 text-2xl font-bold text-dark-slate">{device.age_of_chicken ?? '-'}</p>
           </div>
           <div className="col-span-2 sm:col-span-1">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Current</p>

@@ -5,6 +5,7 @@ const ModifyCameraModal = ({ device, onClose, onSave }) => {
   const [formData, setFormData] = useState({
     num_cages: 1,
     num_chickens: 1,
+    age_of_chicken: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -14,6 +15,7 @@ const ModifyCameraModal = ({ device, onClose, onSave }) => {
       setFormData({
         num_cages: device.num_cages || 1,
         num_chickens: device.num_chickens || 1,
+        age_of_chicken: device.age_of_chicken ?? '',
       });
     }
   }, [device]);
@@ -24,7 +26,7 @@ const ModifyCameraModal = ({ device, onClose, onSave }) => {
     const { name, value } = event.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: Number(value),
+      [name]: value === '' ? '' : Number(value),
     }));
   };
 
@@ -61,7 +63,7 @@ const ModifyCameraModal = ({ device, onClose, onSave }) => {
               <h2 className="text-lg font-bold text-dark-slate">Modify Camera</h2>
             </div>
             <p className="mt-2 text-sm text-gray-500">
-              {device.name} - Update cage and chicken count
+              {device.name} - Update cage, chicken count, and chicken age
             </p>
           </div>
           <button
@@ -81,7 +83,7 @@ const ModifyCameraModal = ({ device, onClose, onSave }) => {
             </div>
           ) : null}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">Number of Cages</label>
               <input
@@ -105,6 +107,19 @@ const ModifyCameraModal = ({ device, onClose, onSave }) => {
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yolk-yellow"
                 required
               />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-gray-700">Age of Chicken</label>
+              <input
+                type="number"
+                name="age_of_chicken"
+                min="0"
+                value={formData.age_of_chicken}
+                onChange={handleChange}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yolk-yellow"
+                placeholder="Enter chicken age"
+              />
+              <p className="mt-2 text-xs text-slate-500">Informational only. This value is shown on the dashboard camera card.</p>
             </div>
           </div>
 

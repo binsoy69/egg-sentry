@@ -84,6 +84,7 @@ const DashboardPage = () => {
   const {
     devices,
     updateDevice,
+    updateDeviceChickenAge,
     loading: devicesLoading,
     error: devicesError,
     refetch: refetchDevices,
@@ -122,7 +123,14 @@ const DashboardPage = () => {
     if (!selectedDevice) {
       return;
     }
-    await updateDevice(selectedDevice.device_id, formData);
+
+    const { age_of_chicken, ...devicePayload } = formData;
+
+    await updateDevice(selectedDevice.device_id, devicePayload);
+    updateDeviceChickenAge(
+      selectedDevice.device_id,
+      age_of_chicken === '' ? null : Number(age_of_chicken)
+    );
     await Promise.all([refetchDevices(), refetchDashboard()]);
   };
 

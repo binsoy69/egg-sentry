@@ -1,4 +1,4 @@
-﻿{
+{
   "capture_interval_seconds": 120,
   "confidence_threshold": 0.5,
   "stabilization_window": 3,
@@ -18,9 +18,9 @@
   "retry_backoff_max_seconds": 8,
   "offline_queue_path": "offline_events.json",
   "size_thresholds": {
-    "small_max": 0.002,
-    "medium_max": 0.003,
-    "large_max": 0.0042,
-    "xl_max": 0.0055
+    "small_max": 0.0013291849448263387,
+    "medium_max": 0.001356286556319344,
+    "large_max": 0.0013563865563193441,
+    "xl_max": 0.0014187031739930052
   }
 }
