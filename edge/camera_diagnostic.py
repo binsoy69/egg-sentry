@@ -9,12 +9,12 @@ from pathlib import Path
 import cv2
 
 try:
-    from .capture import CameraCapture, resolve_source
+    from .capture import resolve_source
     from .config import DEFAULT_CONFIG_PATH, EdgeConfig, load_config
     from .detector import Detection, EggDetector
     from .size_classifier import SizeClassifier, count_sizes
 except ImportError:
-    from capture import CameraCapture, resolve_source
+    from capture import resolve_source
     from config import DEFAULT_CONFIG_PATH, EdgeConfig, load_config
     from detector import Detection, EggDetector
     from size_classifier import SizeClassifier, count_sizes
@@ -390,24 +390,13 @@ def run(argv: list[str] | None = None) -> int:
         aspect_ratio_max=config.aspect_ratio_max,
     )
     snapshot_dir = Path(args.snapshot_dir)
-    use_agent_camera_capture = isinstance(source, int)
-    camera_capture = None
-    cap = None
-    use_tracking = args.track and not use_agent_camera_capture
-    if use_agent_camera_capture:
-        if args.width is not None or args.height is not None:
-            print("Ignoring --width/--height for live camera sources to match edge agent capture behavior.")
-        camera_capture = CameraCapture(
-            source=source,
-            warmup_seconds=config.camera_warmup_seconds,
-        )
-    else:
-        cap = open_video_source(
-            source,
-            width=args.width,
-            height=args.height,
-            warmup_seconds=config.camera_warmup_seconds,
-        )
+    cap = open_video_source(
+        source,
+        width=args.width,
+        height=args.height,
+        warmup_seconds=config.camera_warmup_seconds,
+    )
+    use_tracking = args.track and isinstance(source, Path)
 
     detections: list[Detection] = []
     classifications: list[object] = []
@@ -423,30 +412,23 @@ def run(argv: list[str] | None = None) -> int:
     frame_index = 0
 
     startup_message = (
-        "Camera diagnostic started using the same live-camera capture and predict logic as the edge agent. "
+        "Camera diagnostic started in live preview mode using the configured model from config.json. "
         "Press q to quit, g to toggle guides, d to pause detection, and s to save a frame."
     )
     print(startup_message)
 
     try:
         while True:
-            if use_agent_camera_capture:
-                assert camera_capture is not None
-                captured = camera_capture.capture_frame()
-                frame = captured.frame
-                frame_index = captured.frame_index or (frame_index + 1)
-            else:
-                assert cap is not None
-                ok, frame = cap.read()
-                if not ok:
-                    if isinstance(source, Path) and args.loop_video:
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        continue
-                    if isinstance(source, Path):
-                        print(f"Video source ended: {source}")
-                        break
-                    raise RuntimeError(f"Unable to read frame from video source {source}")
-                frame_index += 1
+            ok, frame = cap.read()
+            if not ok:
+                if isinstance(source, Path) and args.loop_video:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    continue
+                if isinstance(source, Path):
+                    print(f"Video source ended: {source}")
+                    break
+                raise RuntimeError(f"Unable to read frame from video source {source}")
+            frame_index += 1
 
             if args.mirror:
                 frame = cv2.flip(frame, 1)
@@ -454,12 +436,9 @@ def run(argv: list[str] | None = None) -> int:
                 actual_resolution = capture_resolution_info(frame)
                 print(f"Camera source {source_label} opened at {actual_resolution.label}")
 
-            should_infer = False
-            if detection_enabled:
-                if use_agent_camera_capture:
-                    should_infer = True
-                else:
-                    should_infer = frame_index == 1 or frame_index % max(1, args.infer_every) == 0
+            should_infer = detection_enabled and (
+                frame_index == 1 or frame_index % max(1, args.infer_every) == 0
+            )
 
             if should_infer:
                 start = time.perf_counter()
@@ -503,10 +482,7 @@ def run(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Interrupted by user.")
     finally:
-        if cap is not None:
-            cap.release()
-        if camera_capture is not None:
-            camera_capture.close()
+        cap.release()
         cv2.destroyAllWindows()
 
     return 0

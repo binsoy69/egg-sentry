@@ -79,3 +79,4 @@ backend/egg_sentry.db
 backend/.deps/
 edge/offline_events.json
 calibration/*
+models/*
