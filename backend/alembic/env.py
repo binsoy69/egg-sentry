@@ -1,7 +1,15 @@
-﻿from logging.config import fileConfig
+from logging.config import fileConfig
+from pathlib import Path
+import sys
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+
+# Ensure Alembic can import the backend package even when the runtime
+# does not include the project root on PYTHONPATH.
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.config import get_settings
 from app.database import Base
