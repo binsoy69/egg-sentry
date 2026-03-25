@@ -9,12 +9,12 @@ from pathlib import Path
 import cv2
 
 try:
-    from .capture import resolve_source
+    from .capture import CameraCapture, resolve_source
     from .config import DEFAULT_CONFIG_PATH, EdgeConfig, load_config
     from .detector import Detection, EggDetector
     from .size_classifier import SizeClassifier, count_sizes
 except ImportError:
-    from capture import resolve_source
+    from capture import CameraCapture, resolve_source
     from config import DEFAULT_CONFIG_PATH, EdgeConfig, load_config
     from detector import Detection, EggDetector
     from size_classifier import SizeClassifier, count_sizes
@@ -45,6 +45,16 @@ class PlacementFeedback:
     headline: str
     details: tuple[str, ...]
     ok: bool
+
+
+@dataclass(frozen=True)
+class ResolutionInfo:
+    width: int
+    height: int
+
+    @property
+    def label(self) -> str:
+        return f"{self.width}x{self.height}"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -145,6 +155,11 @@ def open_video_source(
             cap.read()
 
     return cap
+
+
+def capture_resolution_info(frame: object) -> ResolutionInfo:
+    frame_height, frame_width = frame.shape[:2]
+    return ResolutionInfo(width=frame_width, height=frame_height)
 
 
 def evaluate_camera_placement(
@@ -288,6 +303,7 @@ def draw_status_panel(
     *,
     source_label: str,
     frame_index: int,
+    actual_resolution: ResolutionInfo | None,
     detection_enabled: bool,
     show_guides: bool,
     confidence_threshold: float,
@@ -302,9 +318,11 @@ def draw_status_panel(
         f"Source: {source_label}",
         f"Frame: {frame_index}",
         f"Detector: {'on' if detection_enabled else 'paused'}  conf={confidence_threshold:.2f}",
-        f"Egg detections: {len(detections)}",
         feedback.headline,
     ]
+    if actual_resolution is not None:
+        panel_lines.append(f"Agent frame resolution: {actual_resolution.label}")
+    panel_lines.append(f"Egg detections: {len(detections)}")
     if inference_ms is not None:
         panel_lines.append(f"Inference: {inference_ms:.1f} ms")
     if size_counts:
@@ -372,12 +390,24 @@ def run(argv: list[str] | None = None) -> int:
         aspect_ratio_max=config.aspect_ratio_max,
     )
     snapshot_dir = Path(args.snapshot_dir)
-    cap = open_video_source(
-        source,
-        width=args.width,
-        height=args.height,
-        warmup_seconds=config.camera_warmup_seconds,
-    )
+    use_agent_camera_capture = isinstance(source, int)
+    camera_capture = None
+    cap = None
+    use_tracking = args.track and not use_agent_camera_capture
+    if use_agent_camera_capture:
+        if args.width is not None or args.height is not None:
+            print("Ignoring --width/--height for live camera sources to match edge agent capture behavior.")
+        camera_capture = CameraCapture(
+            source=source,
+            warmup_seconds=config.camera_warmup_seconds,
+        )
+    else:
+        cap = open_video_source(
+            source,
+            width=args.width,
+            height=args.height,
+            warmup_seconds=config.camera_warmup_seconds,
+        )
 
     detections: list[Detection] = []
     classifications: list[object] = []
@@ -387,33 +417,53 @@ def run(argv: list[str] | None = None) -> int:
         ok=False,
     )
     inference_ms: float | None = None
+    actual_resolution: ResolutionInfo | None = None
     detection_enabled = True
     show_guides = True
     frame_index = 0
 
-    print(
-        "Camera diagnostic started. Press q to quit, g to toggle guides, d to pause detection, and s to save a frame."
+    startup_message = (
+        "Camera diagnostic started using the same live-camera capture and predict logic as the edge agent. "
+        "Press q to quit, g to toggle guides, d to pause detection, and s to save a frame."
     )
+    print(startup_message)
 
     try:
         while True:
-            ok, frame = cap.read()
-            if not ok:
-                if isinstance(source, Path) and args.loop_video:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    continue
-                if isinstance(source, Path):
-                    print(f"Video source ended: {source}")
-                    break
-                raise RuntimeError(f"Unable to read frame from video source {source}")
+            if use_agent_camera_capture:
+                assert camera_capture is not None
+                captured = camera_capture.capture_frame()
+                frame = captured.frame
+                frame_index = captured.frame_index or (frame_index + 1)
+            else:
+                assert cap is not None
+                ok, frame = cap.read()
+                if not ok:
+                    if isinstance(source, Path) and args.loop_video:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        continue
+                    if isinstance(source, Path):
+                        print(f"Video source ended: {source}")
+                        break
+                    raise RuntimeError(f"Unable to read frame from video source {source}")
+                frame_index += 1
 
-            frame_index += 1
             if args.mirror:
                 frame = cv2.flip(frame, 1)
+            if actual_resolution is None:
+                actual_resolution = capture_resolution_info(frame)
+                print(f"Camera source {source_label} opened at {actual_resolution.label}")
 
-            if detection_enabled and (frame_index == 1 or frame_index % max(1, args.infer_every) == 0):
+            should_infer = False
+            if detection_enabled:
+                if use_agent_camera_capture:
+                    should_infer = True
+                else:
+                    should_infer = frame_index == 1 or frame_index % max(1, args.infer_every) == 0
+
+            if should_infer:
                 start = time.perf_counter()
-                detections = detector.detect(frame, use_tracking=args.track)
+                detections = detector.detect(frame, use_tracking=use_tracking)
                 classifications = [
                     classifier.classify(detection.bbox, frame.shape)
                     for detection in detections
@@ -429,6 +479,7 @@ def run(argv: list[str] | None = None) -> int:
                 annotated,
                 source_label=source_label,
                 frame_index=frame_index,
+                actual_resolution=actual_resolution,
                 detection_enabled=detection_enabled,
                 show_guides=show_guides,
                 confidence_threshold=config.confidence_threshold,
@@ -452,7 +503,10 @@ def run(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Interrupted by user.")
     finally:
-        cap.release()
+        if cap is not None:
+            cap.release()
+        if camera_capture is not None:
+            camera_capture.close()
         cv2.destroyAllWindows()
 
     return 0

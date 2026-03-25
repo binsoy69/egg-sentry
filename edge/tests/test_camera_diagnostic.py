@@ -1,4 +1,8 @@
-from edge.camera_diagnostic import evaluate_camera_placement
+from edge.camera_diagnostic import (
+    ResolutionInfo,
+    capture_resolution_info,
+    evaluate_camera_placement,
+)
 from edge.detector import Detection
 
 
@@ -27,6 +31,15 @@ def test_evaluate_camera_placement_accepts_centered_detection() -> None:
 
     assert feedback.ok is True
     assert feedback.headline == "Placement looks good"
+
+
+def test_capture_resolution_info_uses_actual_frame_shape() -> None:
+    class DummyFrame:
+        shape = (480, 640, 3)
+
+    resolution = capture_resolution_info(DummyFrame())
+
+    assert resolution == ResolutionInfo(width=640, height=480)
 
 
 def test_evaluate_camera_placement_flags_off_center_small_detection() -> None:
