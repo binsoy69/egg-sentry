@@ -1,4 +1,11 @@
-from edge.webcam_preview import ResolutionInfo, capture_resolution_info, parse_source
+from edge.webcam_preview import (
+    DEFAULT_HEIGHT,
+    DEFAULT_WIDTH,
+    ResolutionInfo,
+    capture_resolution_info,
+    parse_args,
+    parse_source,
+)
 
 
 class DummyCapture:
@@ -20,6 +27,13 @@ class DummyFrame:
 def test_parse_source_supports_index_and_device_path() -> None:
     assert parse_source("0") == 0
     assert parse_source("/dev/video0") == "/dev/video0"
+
+
+def test_parse_args_requests_1080p_by_default() -> None:
+    args = parse_args([])
+
+    assert args.width == DEFAULT_WIDTH == 1920
+    assert args.height == DEFAULT_HEIGHT == 1080
 
 
 def test_capture_resolution_info_uses_capture_properties() -> None:
