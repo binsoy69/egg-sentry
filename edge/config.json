@@ -7,7 +7,7 @@
   "aspect_ratio_min": 0.5,
   "aspect_ratio_max": 2.0,
   "video_loop": true,
-  "model_path": "../models/counter-yolo26n.pt",
+  "model_path": "../models/counter-yolo26n_ncnn_model",
   "backend_api_base_url": "https://egg-sentry-production.up.railway.app/api",
   "device_id": "cam-001",
   "device_api_key": "vPwGj2kObsgDPczuuS7-qmNWbD5d_gKFc7jei26UvGQ",
