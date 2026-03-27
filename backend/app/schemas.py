@@ -59,11 +59,21 @@ class DeviceHeartbeatResponse(BaseModel):
     acknowledged: bool = True
 
 
+class ChickenAgePayload(BaseModel):
+    weeks: int = Field(ge=0, default=0)
+    days: int = Field(ge=0, default=0)
+
+
+class ChickenAgeRead(ChickenAgePayload):
+    set_at: datetime
+
+
 class DeviceUpdateRequest(BaseModel):
     name: str | None = None
     location: str | None = None
     num_cages: int | None = Field(default=None, ge=1)
     num_chickens: int | None = Field(default=None, ge=1)
+    age_of_chicken: ChickenAgePayload | None = None
     min_size_threshold: float | None = Field(default=None, gt=0)
     max_size_threshold: float | None = Field(default=None, gt=0)
     confidence_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -83,6 +93,7 @@ class DeviceRead(BaseModel):
     location: str | None = None
     num_cages: int
     num_chickens: int
+    age_of_chicken: ChickenAgeRead | None = None
     min_size_threshold: float
     max_size_threshold: float
     confidence_threshold: float

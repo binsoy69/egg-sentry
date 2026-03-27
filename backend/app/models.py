@@ -35,6 +35,8 @@ class Device(Base):
     location: Mapped[str | None] = mapped_column(String(200), nullable=True)
     num_cages: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     num_chickens: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    age_of_chicken_total_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    age_of_chicken_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     min_size_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=40.0, server_default="40")
     max_size_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=80.0, server_default="80")
     confidence_threshold: Mapped[float] = mapped_column(

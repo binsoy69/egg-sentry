@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { devicesService } from '../services/devices';
 
-const CHICKEN_AGE_STORAGE_KEY = 'egg-sentry:device-chicken-age';
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 const normalizeAgeUnit = (value) => {
   if (value === '' || value === null || value === undefined) {
@@ -52,44 +52,46 @@ const normalizeChickenAge = (value) => {
   };
 };
 
-const readChickenAgeMap = () => {
-  if (typeof window === 'undefined') {
-    return {};
+const buildChickenAgeRecord = (value, fallbackSetAt = new Date().toISOString()) => {
+  const normalizedAge = normalizeChickenAge(value);
+  if (!normalizedAge) {
+    return null;
   }
 
-  try {
-    const storedValue = window.localStorage.getItem(CHICKEN_AGE_STORAGE_KEY);
-    if (!storedValue) {
-      return {};
-    }
+  const rawSetAt =
+    typeof value === 'object' && value !== null ? value.set_at ?? value.setAt ?? null : null;
+  const parsedSetAt = rawSetAt ? Date.parse(rawSetAt) : Number.NaN;
 
-    const parsedValue = JSON.parse(storedValue);
-    return parsedValue && typeof parsedValue === 'object' ? parsedValue : {};
-  } catch (error) {
-    console.error('Failed to read stored chicken ages', error);
-    return {};
-  }
+  return {
+    weeks: normalizedAge.weeks,
+    days: normalizedAge.days,
+    set_at: Number.isNaN(parsedSetAt) ? fallbackSetAt : new Date(parsedSetAt).toISOString(),
+  };
 };
 
-const writeChickenAgeMap = (ageMap) => {
-  if (typeof window === 'undefined') {
-    return;
+const resolveChickenAge = (value, now = Date.now()) => {
+  const record = buildChickenAgeRecord(value);
+  if (!record) {
+    return null;
   }
 
-  try {
-    window.localStorage.setItem(CHICKEN_AGE_STORAGE_KEY, JSON.stringify(ageMap));
-  } catch (error) {
-    console.error('Failed to store chicken ages', error);
-  }
+  const elapsedDays = Math.max(0, Math.floor((now - Date.parse(record.set_at)) / DAY_IN_MS));
+  const totalDays = record.weeks * 7 + record.days + elapsedDays;
+
+  return {
+    weeks: Math.floor(totalDays / 7),
+    days: totalDays % 7,
+  };
 };
 
-const mergeChickenAge = (devices) => {
-  const chickenAgeMap = readChickenAgeMap();
+const mapDeviceChickenAge = (device) => {
+  const ageRecord = buildChickenAgeRecord(device.age_of_chicken);
 
-  return devices.map((device) => ({
+  return {
     ...device,
-    age_of_chicken: normalizeChickenAge(chickenAgeMap[device.device_id] ?? device.age_of_chicken ?? null),
-  }));
+    age_of_chicken: resolveChickenAge(ageRecord),
+    age_of_chicken_record: ageRecord,
+  };
 };
 
 export const useDevices = () => {
@@ -97,11 +99,29 @@ export const useDevices = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const refreshDisplayedChickenAges = useCallback(() => {
+    setDevices((prev) =>
+      prev.map((device) => {
+        const nextAge = resolveChickenAge(device.age_of_chicken_record);
+        const currentAge = device.age_of_chicken;
+
+        if (currentAge?.weeks === nextAge?.weeks && currentAge?.days === nextAge?.days) {
+          return device;
+        }
+
+        return {
+          ...device,
+          age_of_chicken: nextAge,
+        };
+      })
+    );
+  }, []);
+
   const fetchDevices = useCallback(async () => {
     setLoading(true);
     try {
       const data = await devicesService.getDevices();
-      setDevices(mergeChickenAge(data));
+      setDevices(data.map(mapDeviceChickenAge));
       setError(null);
     } catch (err) {
       setError(err.message || 'Failed to fetch devices');
@@ -117,7 +137,7 @@ export const useDevices = () => {
       setDevices((prev) =>
         prev.map((device) => (
           device.device_id === deviceId
-            ? { ...updatedDevice, age_of_chicken: normalizeChickenAge(device.age_of_chicken ?? null) }
+            ? mapDeviceChickenAge(updatedDevice)
             : device
         ))
       );
@@ -128,33 +148,13 @@ export const useDevices = () => {
     }
   };
 
-  const updateDeviceChickenAge = useCallback((deviceId, chickenAge) => {
-    const nextChickenAgeMap = readChickenAgeMap();
-    const normalizedChickenAge = normalizeChickenAge(chickenAge);
-
-    if (normalizedChickenAge === null) {
-      delete nextChickenAgeMap[deviceId];
-    } else {
-      nextChickenAgeMap[deviceId] = normalizedChickenAge;
-    }
-
-    writeChickenAgeMap(nextChickenAgeMap);
-    setDevices((prev) =>
-      prev.map((device) => (
-        device.device_id === deviceId
-          ? { ...device, age_of_chicken: normalizedChickenAge }
-          : device
-      ))
-    );
-  }, []);
-
   const updateDeviceConfig = async (deviceId, isConfigActive) => {
     try {
       const updatedDevice = await devicesService.toggleDeviceConfig(deviceId, isConfigActive);
       setDevices((prev) =>
         prev.map((device) => (
           device.device_id === deviceId
-            ? { ...updatedDevice, age_of_chicken: normalizeChickenAge(device.age_of_chicken ?? null) }
+            ? mapDeviceChickenAge(updatedDevice)
             : device
         ))
       );
@@ -170,12 +170,21 @@ export const useDevices = () => {
     fetchDevices();
   }, [fetchDevices]);
 
+  useEffect(() => {
+    refreshDisplayedChickenAges();
+
+    const intervalId = window.setInterval(refreshDisplayedChickenAges, 60 * 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [refreshDisplayedChickenAges]);
+
   return {
     devices,
     loading,
     error,
     updateDevice,
-    updateDeviceChickenAge,
     updateDeviceConfig,
     refetch: fetchDevices,
   };

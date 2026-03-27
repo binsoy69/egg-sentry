@@ -146,7 +146,7 @@ const ModifyCameraModal = ({ device, onClose, onSave }) => {
                   />
                 </div>
               </div>
-              <p className="mt-2 text-xs text-slate-500">Informational only. This value is shown on the dashboard camera card.</p>
+              <p className="mt-2 text-xs text-slate-500">After you save it, this age is shared across devices and advances automatically.</p>
             </div>
           </div>
 
