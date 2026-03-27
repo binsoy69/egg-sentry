@@ -12,6 +12,7 @@ from app.services import (
     create_collection,
     count_for_day,
     current_local_date,
+    ensure_event_egg_records,
     ensure_aware,
     evaluate_alerts,
     get_device_by_identifier,
@@ -54,8 +55,16 @@ def ingest_events(
             collected_at=payload.timestamp,
         )
 
+    event_eggs = ensure_event_egg_records(
+        previous_snapshot=previous_snapshot,
+        total_count=payload.total_count,
+        size_breakdown=payload.size_breakdown,
+        new_eggs=payload.new_eggs,
+        timestamp=payload.timestamp,
+    )
+
     events_created = 0
-    for egg in payload.new_eggs:
+    for egg in event_eggs:
         db.add(
             EggDetection(
                 device_id=current_device.id,

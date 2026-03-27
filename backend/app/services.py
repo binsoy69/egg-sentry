@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.constants import SIZE_DISPLAY_MAP, SIZE_ORDER
 from app.models import Alert, CountSnapshot, Device, EggCollection, EggDetection, User
-from app.schemas import CollectionEntryRead, HistoryRecord
+from app.schemas import CollectionEntryRead, EventEggCreate, HistoryRecord
 
 
 settings = get_settings()
@@ -108,6 +108,64 @@ def build_history_record(detection: EggDetection) -> HistoryRecord:
         count=1,
         image_url=None,
     )
+
+
+def ensure_event_egg_records(
+    *,
+    previous_snapshot: CountSnapshot | None,
+    total_count: int,
+    size_breakdown: dict[str, int] | None,
+    new_eggs: list[EventEggCreate],
+    timestamp: datetime,
+) -> list[EventEggCreate]:
+    previous_total = previous_snapshot.total_count if previous_snapshot else 0
+    expected_increase = max(0, total_count - previous_total)
+    if expected_increase <= 0:
+        return list(new_eggs)
+
+    records = list(new_eggs)
+    if len(records) >= expected_increase:
+        return records
+
+    previous_sizes = previous_snapshot.size_breakdown or {} if previous_snapshot else {}
+    current_sizes = size_breakdown or {}
+    actual_by_size = Counter(egg.size for egg in records)
+    sizes_in_order = list(dict.fromkeys([*SIZE_ORDER, *current_sizes.keys(), *previous_sizes.keys()]))
+
+    for size in sizes_in_order:
+        expected_for_size = max(0, int(current_sizes.get(size, 0)) - int(previous_sizes.get(size, 0)))
+        missing_for_size = expected_for_size - actual_by_size.get(size, 0)
+        while missing_for_size > 0 and len(records) < expected_increase:
+            records.append(
+                EventEggCreate(
+                    size=size,
+                    confidence=None,
+                    bbox_area_normalized=None,
+                    detected_at=timestamp,
+                )
+            )
+            actual_by_size[size] += 1
+            missing_for_size -= 1
+
+    fallback_size = next(
+        (
+            size
+            for size in sizes_in_order
+            if int(current_sizes.get(size, 0)) > actual_by_size.get(size, 0)
+        ),
+        records[0].size if records else "unknown",
+    )
+    while len(records) < expected_increase:
+        records.append(
+            EventEggCreate(
+                size=fallback_size,
+                confidence=None,
+                bbox_area_normalized=None,
+                detected_at=timestamp,
+            )
+        )
+
+    return records
 
 
 def query_detections(
