@@ -1,6 +1,24 @@
 import React from 'react';
 import { Camera } from 'lucide-react';
 
+const formatChickenAge = (age) => {
+  if (!age) {
+    return '-';
+  }
+
+  const parts = [];
+
+  if (age.weeks) {
+    parts.push(`${age.weeks} week${age.weeks === 1 ? '' : 's'}`);
+  }
+
+  if (age.days || parts.length === 0) {
+    parts.push(`${age.days ?? 0} day${age.days === 1 ? '' : 's'}`);
+  }
+
+  return parts.join(' ');
+};
+
 const CameraCard = ({ device, currentCount = 0, collectedToday = 0 }) => {
   return (
     <div className="rounded-2xl border border-amber-100 bg-white shadow-sm">
@@ -26,7 +44,7 @@ const CameraCard = ({ device, currentCount = 0, collectedToday = 0 }) => {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Chicken Age</p>
-            <p className="mt-1 text-2xl font-bold text-dark-slate">{device.age_of_chicken ?? '-'}</p>
+            <p className="mt-1 text-lg font-bold text-dark-slate sm:text-xl">{formatChickenAge(device.age_of_chicken)}</p>
           </div>
           <div className="col-span-2 sm:col-span-1">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Current</p>

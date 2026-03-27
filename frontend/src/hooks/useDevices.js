@@ -3,6 +3,55 @@ import { devicesService } from '../services/devices';
 
 const CHICKEN_AGE_STORAGE_KEY = 'egg-sentry:device-chicken-age';
 
+const normalizeAgeUnit = (value) => {
+  if (value === '' || value === null || value === undefined) {
+    return null;
+  }
+
+  const parsedValue = Number(value);
+  if (!Number.isFinite(parsedValue)) {
+    return null;
+  }
+
+  return Math.max(0, Math.trunc(parsedValue));
+};
+
+const normalizeChickenAge = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  if (typeof value === 'number' || typeof value === 'string') {
+    const normalizedValue = normalizeAgeUnit(value);
+    if (normalizedValue === null) {
+      return null;
+    }
+
+    return {
+      weeks: Math.floor(normalizedValue / 7),
+      days: normalizedValue % 7,
+    };
+  }
+
+  if (typeof value !== 'object') {
+    return null;
+  }
+
+  const weeks = normalizeAgeUnit(value.weeks);
+  const days = normalizeAgeUnit(value.days);
+
+  if (weeks === null && days === null) {
+    return null;
+  }
+
+  const totalDays = (weeks ?? 0) * 7 + (days ?? 0);
+
+  return {
+    weeks: Math.floor(totalDays / 7),
+    days: totalDays % 7,
+  };
+};
+
 const readChickenAgeMap = () => {
   if (typeof window === 'undefined') {
     return {};
@@ -39,7 +88,7 @@ const mergeChickenAge = (devices) => {
 
   return devices.map((device) => ({
     ...device,
-    age_of_chicken: chickenAgeMap[device.device_id] ?? device.age_of_chicken ?? null,
+    age_of_chicken: normalizeChickenAge(chickenAgeMap[device.device_id] ?? device.age_of_chicken ?? null),
   }));
 };
 
@@ -68,7 +117,7 @@ export const useDevices = () => {
       setDevices((prev) =>
         prev.map((device) => (
           device.device_id === deviceId
-            ? { ...updatedDevice, age_of_chicken: device.age_of_chicken ?? null }
+            ? { ...updatedDevice, age_of_chicken: normalizeChickenAge(device.age_of_chicken ?? null) }
             : device
         ))
       );
@@ -81,18 +130,19 @@ export const useDevices = () => {
 
   const updateDeviceChickenAge = useCallback((deviceId, chickenAge) => {
     const nextChickenAgeMap = readChickenAgeMap();
+    const normalizedChickenAge = normalizeChickenAge(chickenAge);
 
-    if (chickenAge === null || chickenAge === undefined || chickenAge === '') {
+    if (normalizedChickenAge === null) {
       delete nextChickenAgeMap[deviceId];
     } else {
-      nextChickenAgeMap[deviceId] = chickenAge;
+      nextChickenAgeMap[deviceId] = normalizedChickenAge;
     }
 
     writeChickenAgeMap(nextChickenAgeMap);
     setDevices((prev) =>
       prev.map((device) => (
         device.device_id === deviceId
-          ? { ...device, age_of_chicken: chickenAge === '' ? null : chickenAge }
+          ? { ...device, age_of_chicken: normalizedChickenAge }
           : device
       ))
     );
@@ -104,7 +154,7 @@ export const useDevices = () => {
       setDevices((prev) =>
         prev.map((device) => (
           device.device_id === deviceId
-            ? { ...updatedDevice, age_of_chicken: device.age_of_chicken ?? null }
+            ? { ...updatedDevice, age_of_chicken: normalizeChickenAge(device.age_of_chicken ?? null) }
             : device
         ))
       );

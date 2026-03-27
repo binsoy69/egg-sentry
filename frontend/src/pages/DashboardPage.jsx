@@ -124,13 +124,13 @@ const DashboardPage = () => {
       return;
     }
 
-    const { age_of_chicken, ...devicePayload } = formData;
+    const { age_of_chicken_days, age_of_chicken_weeks, ...devicePayload } = formData;
 
     await updateDevice(selectedDevice.device_id, devicePayload);
-    updateDeviceChickenAge(
-      selectedDevice.device_id,
-      age_of_chicken === '' ? null : Number(age_of_chicken)
-    );
+    updateDeviceChickenAge(selectedDevice.device_id, {
+      weeks: age_of_chicken_weeks,
+      days: age_of_chicken_days,
+    });
     await Promise.all([refetchDevices(), refetchDashboard()]);
   };
 
