@@ -2,6 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { devicesService } from '../services/devices';
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const APP_TIMEZONE = 'Asia/Manila';
+const APP_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: APP_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
 
 const normalizeAgeUnit = (value) => {
   if (value === '' || value === null || value === undefined) {
@@ -69,13 +76,31 @@ const buildChickenAgeRecord = (value, fallbackSetAt = new Date().toISOString()) 
   };
 };
 
+const getTimezoneDateKey = (value) => {
+  const parts = APP_DATE_FORMATTER.formatToParts(new Date(value));
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value);
+  const day = Number(parts.find((part) => part.type === 'day')?.value);
+
+  return { year, month, day };
+};
+
+const getElapsedCalendarDays = (start, end) => {
+  const startDateKey = getTimezoneDateKey(start);
+  const endDateKey = getTimezoneDateKey(end);
+  const startUtcDay = Date.UTC(startDateKey.year, startDateKey.month - 1, startDateKey.day);
+  const endUtcDay = Date.UTC(endDateKey.year, endDateKey.month - 1, endDateKey.day);
+
+  return Math.max(0, Math.floor((endUtcDay - startUtcDay) / DAY_IN_MS));
+};
+
 const resolveChickenAge = (value, now = Date.now()) => {
   const record = buildChickenAgeRecord(value);
   if (!record) {
     return null;
   }
 
-  const elapsedDays = Math.max(0, Math.floor((now - Date.parse(record.set_at)) / DAY_IN_MS));
+  const elapsedDays = getElapsedCalendarDays(record.set_at, now);
   const totalDays = record.weeks * 7 + record.days + elapsedDays;
 
   return {
