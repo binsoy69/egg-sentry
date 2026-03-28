@@ -14,6 +14,10 @@ from app.schemas import CollectionEntryRead, EventEggCreate, HistoryRecord
 
 
 settings = get_settings()
+CORRECTABLE_SIZE_ORDER = [size for size in SIZE_ORDER if size != "unknown"]
+CORRECTABLE_SIZE_INDEX = {size: index for index, size in enumerate(CORRECTABLE_SIZE_ORDER)}
+EVENT_SIZE_CORRECTION_MIN_SPREAD = 0.00005
+EVENT_SIZE_CORRECTION_RELATIVE_SPREAD = 0.04
 
 
 def app_tz() -> ZoneInfo:
@@ -49,6 +53,108 @@ def size_display(size: str | None) -> str:
     if not size:
         return "?"
     return SIZE_DISPLAY_MAP.get(size, size.upper())
+
+
+def _size_correction_indices(size: str, count: int) -> list[int]:
+    base_index = CORRECTABLE_SIZE_INDEX[size]
+    max_index = len(CORRECTABLE_SIZE_ORDER) - 1
+    if count <= len(CORRECTABLE_SIZE_ORDER):
+        start = min(max(base_index - count + 1, 0), max_index - count + 1)
+        return [start + offset for offset in range(count)]
+    return [min(offset, max_index) for offset in range(count)]
+
+
+def _has_meaningful_area_spread(event_eggs: list[EventEggCreate]) -> bool:
+    areas = [
+        float(egg.bbox_area_normalized)
+        for egg in event_eggs
+        if egg.bbox_area_normalized is not None
+    ]
+    if len(areas) < 2:
+        return False
+    spread = max(areas) - min(areas)
+    threshold = max(EVENT_SIZE_CORRECTION_MIN_SPREAD, max(areas) * EVENT_SIZE_CORRECTION_RELATIVE_SPREAD)
+    return spread >= threshold
+
+
+def correct_event_egg_sizes(new_eggs: list[EventEggCreate]) -> list[EventEggCreate]:
+    if len(new_eggs) < 2:
+        return list(new_eggs)
+
+    corrected = list(new_eggs)
+    sortable = [
+        (index, egg)
+        for index, egg in enumerate(new_eggs)
+        if egg.size in CORRECTABLE_SIZE_INDEX and egg.bbox_area_normalized is not None
+    ]
+    if len(sortable) < 2:
+        return corrected
+
+    sortable.sort(
+        key=lambda item: (
+            float(item[1].bbox_area_normalized or 0.0),
+            ensure_aware(item[1].detected_at),
+            item[0],
+        )
+    )
+
+    cursor = 0
+    while cursor < len(sortable):
+        run_end = cursor + 1
+        raw_size = sortable[cursor][1].size
+        while run_end < len(sortable) and sortable[run_end][1].size == raw_size:
+            run_end += 1
+
+        run = sortable[cursor:run_end]
+        if len(run) > 1 and _has_meaningful_area_spread([egg for _, egg in run]):
+            assigned_indices = _size_correction_indices(raw_size, len(run))
+            for assigned_index, (original_index, egg) in zip(assigned_indices, run):
+                corrected[original_index] = egg.model_copy(
+                    update={"size": CORRECTABLE_SIZE_ORDER[assigned_index]}
+                )
+
+        cursor = run_end
+
+    return corrected
+
+
+def aggregate_event_egg_sizes(new_eggs: list[EventEggCreate]) -> dict[str, int]:
+    counts = Counter(egg.size for egg in new_eggs)
+    return {size: count for size, count in counts.items() if count > 0}
+
+
+def derive_snapshot_size_breakdown(
+    *,
+    previous_snapshot: CountSnapshot | None,
+    total_count: int,
+    new_eggs: list[EventEggCreate],
+) -> dict[str, int] | None:
+    previous_total = previous_snapshot.total_count if previous_snapshot else 0
+    if total_count < previous_total:
+        return None
+
+    expected_increase = max(0, total_count - previous_total)
+    if previous_snapshot is None:
+        if expected_increase != total_count:
+            return None
+        snapshot_counts = aggregate_event_egg_sizes(new_eggs[:expected_increase])
+        return snapshot_counts or None
+
+    previous_sizes = previous_snapshot.size_breakdown or {}
+    if previous_total > 0 and not previous_sizes:
+        return None
+
+    current_sizes = Counter({size: int(count) for size, count in previous_sizes.items() if int(count) > 0})
+    if current_sizes and sum(current_sizes.values()) != previous_total:
+        return None
+
+    if expected_increase == 0:
+        return dict(current_sizes) or None
+
+    current_sizes.update(aggregate_event_egg_sizes(new_eggs[:expected_increase]))
+    if sum(current_sizes.values()) != total_count:
+        return None
+    return dict(current_sizes)
 
 
 def status_for_device(device: Device) -> tuple[bool, str]:

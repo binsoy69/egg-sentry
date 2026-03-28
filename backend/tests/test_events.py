@@ -1,7 +1,9 @@
-﻿from datetime import datetime, timezone
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
+from app.models import CountSnapshot
 from tests.helpers import create_event_payload
 
 
@@ -44,3 +46,56 @@ def test_event_ingestion_backfills_missing_history_records(client: TestClient, a
     assert body["total_records"] == 3
     assert len(body["records"]) == 3
     assert all(record["size"] == "jumbo" for record in body["records"])
+
+
+def test_event_ingestion_corrects_repeated_sizes_for_ui_and_snapshot(
+    client: TestClient,
+    auth_headers: dict,
+    device_headers: dict,
+    db_session,
+):
+    timestamp = datetime.now(timezone.utc)
+    payload = {
+        "device_id": "cam-001",
+        "timestamp": timestamp.isoformat(),
+        "total_count": 3,
+        "new_eggs": [
+            {
+                "size": "jumbo",
+                "confidence": 0.91,
+                "bbox_area_normalized": 0.0042,
+                "detected_at": timestamp.isoformat(),
+            },
+            {
+                "size": "jumbo",
+                "confidence": 0.92,
+                "bbox_area_normalized": 0.0052,
+                "detected_at": (timestamp + timedelta(microseconds=1)).isoformat(),
+            },
+            {
+                "size": "jumbo",
+                "confidence": 0.93,
+                "bbox_area_normalized": 0.0064,
+                "detected_at": (timestamp + timedelta(microseconds=2)).isoformat(),
+            },
+        ],
+        "size_breakdown": {"jumbo": 3},
+    }
+
+    ingest_response = client.post("/api/events", json=payload, headers=device_headers)
+    history_response = client.get("/api/history", headers=auth_headers)
+    summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+
+    assert ingest_response.status_code == 201
+    assert history_response.status_code == 200
+    assert summary_response.status_code == 200
+
+    history_sizes = Counter(record["size"] for record in history_response.json()["records"])
+    assert history_sizes == {"large": 1, "extra-large": 1, "jumbo": 1}
+
+    summary_body = summary_response.json()
+    assert summary_body["size_distribution"] == {"L": 1, "XL": 1, "Jumbo": 1}
+
+    snapshot = db_session.query(CountSnapshot).order_by(CountSnapshot.id.desc()).first()
+    assert snapshot is not None
+    assert snapshot.size_breakdown == {"large": 1, "extra-large": 1, "jumbo": 1}
