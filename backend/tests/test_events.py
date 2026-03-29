@@ -332,3 +332,41 @@ def test_single_new_egg_redistributes_when_previous_snapshot_is_biased(
     latest_snapshot = db_session.query(CountSnapshot).order_by(CountSnapshot.id.desc()).first()
     assert latest_snapshot is not None
     assert latest_snapshot.size_breakdown == {"jumbo": 1, "extra-large": 1}
+
+
+def test_gradual_count_drop_reconciles_history_and_keeps_collections_manual_only(
+    client: TestClient,
+    auth_headers: dict,
+    device_headers: dict,
+):
+    timestamp = datetime.now(timezone.utc)
+    client.post(
+        "/api/events",
+        json=create_event_payload(timestamp=timestamp, sizes=["medium"] * 5, total_count=5),
+        headers=device_headers,
+    )
+
+    drop_to_four = create_event_payload(timestamp=timestamp + timedelta(minutes=5), sizes=[], total_count=4)
+    drop_to_four["size_breakdown"] = {"medium": 4}
+    drop_to_three = create_event_payload(timestamp=timestamp + timedelta(minutes=10), sizes=[], total_count=3)
+    drop_to_three["size_breakdown"] = {"medium": 3}
+
+    first_drop_response = client.post("/api/events", json=drop_to_four, headers=device_headers)
+    second_drop_response = client.post("/api/events", json=drop_to_three, headers=device_headers)
+    summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+    history_response = client.get("/api/history", headers=auth_headers)
+
+    assert first_drop_response.status_code == 201
+    assert second_drop_response.status_code == 201
+    assert summary_response.status_code == 200
+    assert history_response.status_code == 200
+
+    summary = summary_response.json()
+    history = history_response.json()
+
+    assert summary["current_eggs"] == 3
+    assert summary["collected_today"] == 0
+    assert summary["total_today"] == 3
+    assert summary["collection_history"] == []
+    assert history["total_records"] == 3
+    assert all(record["size"] == "medium" for record in history["records"])

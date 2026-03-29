@@ -15,7 +15,7 @@ const CollectionHistoryPanel = ({ entries }) => {
         </div>
         <h2 className="mt-4 text-lg font-semibold text-dark-slate">No collections logged today</h2>
         <p className="mt-2 text-sm text-slate-500">
-          Use the collect button when eggs are removed, or let the system infer it from a large count drop.
+          Use the collect button whenever eggs are removed so the collection log stays accurate.
         </p>
       </div>
     );
@@ -40,7 +40,7 @@ const CollectionHistoryPanel = ({ entries }) => {
               <div className="flex flex-wrap items-center gap-3">
                 <p className="text-2xl font-bold text-dark-slate">{entry.count} eggs</p>
                 <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${sourceClassMap[entry.source] || 'bg-slate-100 text-slate-600'}`}>
-                  {entry.source === 'manual' ? 'Manual' : 'Auto'}
+                  {entry.source === 'manual' ? 'Manual' : 'Automatic'}
                 </span>
               </div>
               <p className="mt-2 text-sm text-slate-500">

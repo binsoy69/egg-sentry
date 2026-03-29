@@ -177,37 +177,57 @@ def aggregate_event_egg_sizes(new_eggs: list[EventEggCreate]) -> dict[str, int]:
     return {size: count for size, count in counts.items() if count > 0}
 
 
+def normalize_size_breakdown(total_count: int, size_breakdown: dict[str, int] | None) -> dict[str, int] | None:
+    if not size_breakdown:
+        return None
+
+    normalized: dict[str, int] = {}
+    for size, count in size_breakdown.items():
+        try:
+            parsed = int(count)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            normalized[size] = parsed
+
+    if sum(normalized.values()) != total_count:
+        return None
+    return normalized or None
+
+
 def derive_snapshot_size_breakdown(
     *,
     previous_snapshot: CountSnapshot | None,
     total_count: int,
     new_eggs: list[EventEggCreate],
+    reported_size_breakdown: dict[str, int] | None = None,
 ) -> dict[str, int] | None:
     previous_total = previous_snapshot.total_count if previous_snapshot else 0
+    normalized_reported = normalize_size_breakdown(total_count, reported_size_breakdown)
     if total_count < previous_total:
-        return None
+        return normalized_reported
 
     expected_increase = max(0, total_count - previous_total)
     if previous_snapshot is None:
         if expected_increase != total_count:
-            return None
+            return normalized_reported
         snapshot_counts = aggregate_event_egg_sizes(new_eggs[:expected_increase])
-        return snapshot_counts or None
+        return snapshot_counts or normalized_reported
 
     previous_sizes = previous_snapshot.size_breakdown or {}
     if previous_total > 0 and not previous_sizes:
-        return None
+        return normalized_reported
 
     current_sizes = Counter({size: int(count) for size, count in previous_sizes.items() if int(count) > 0})
     if current_sizes and sum(current_sizes.values()) != previous_total:
-        return None
+        return normalized_reported
 
     if expected_increase == 0:
-        return dict(current_sizes) or None
+        return dict(current_sizes) or normalized_reported
 
     current_sizes.update(aggregate_event_egg_sizes(new_eggs[:expected_increase]))
     if sum(current_sizes.values()) != total_count:
-        return None
+        return normalized_reported
     return dict(current_sizes)
 
 
@@ -345,6 +365,66 @@ def query_detections(
     return list(db.execute(stmt).scalars().all())
 
 
+def reconcile_detections_for_count_drop(
+    db: Session,
+    *,
+    device: Device,
+    previous_snapshot: CountSnapshot | None,
+    total_count: int,
+    size_breakdown: dict[str, int] | None,
+    detected_before: datetime,
+) -> int:
+    previous_total = previous_snapshot.total_count if previous_snapshot else 0
+    drop_count = previous_total - total_count
+    if drop_count <= 0:
+        return 0
+
+    current_sizes = normalize_size_breakdown(total_count, size_breakdown) or {}
+    previous_sizes = normalize_size_breakdown(previous_total, previous_snapshot.size_breakdown) or {}
+
+    stmt = (
+        select(EggDetection)
+        .where(
+            EggDetection.device_id == device.id,
+            EggDetection.detected_at <= ensure_aware(detected_before),
+        )
+        .order_by(EggDetection.detected_at.desc(), EggDetection.id.desc())
+    )
+    detections = list(db.execute(stmt).scalars().all())
+    if not detections:
+        return 0
+
+    removed_ids: set[int] = set()
+    removed_count = 0
+
+    for size in list(dict.fromkeys([*SIZE_ORDER, *previous_sizes.keys(), *current_sizes.keys()])):
+        missing_for_size = max(0, int(previous_sizes.get(size, 0)) - int(current_sizes.get(size, 0)))
+        if missing_for_size <= 0:
+            continue
+        for detection in detections:
+            if detection.id in removed_ids or detection.size != size:
+                continue
+            db.delete(detection)
+            removed_ids.add(detection.id)
+            removed_count += 1
+            missing_for_size -= 1
+            if missing_for_size == 0 or removed_count >= drop_count:
+                break
+        if removed_count >= drop_count:
+            return removed_count
+
+    for detection in detections:
+        if removed_count >= drop_count:
+            break
+        if detection.id in removed_ids:
+            continue
+        db.delete(detection)
+        removed_ids.add(detection.id)
+        removed_count += 1
+
+    return removed_count
+
+
 def count_for_day(db: Session, device: Device, target_date: date) -> int:
     start, end = local_day_bounds(target_date)
     stmt = select(func.count(EggDetection.id)).where(
@@ -432,13 +512,6 @@ def build_collection_entry(collection: EggCollection) -> CollectionEntryRead:
         collected_at=ensure_aware(collection.collected_at),
         collected_at_display=local_dt.strftime("%b %d, %Y, %I:%M %p"),
     )
-
-
-def should_infer_collection(previous_count: int, new_count: int) -> bool:
-    if previous_count <= new_count:
-        return False
-    drop = previous_count - new_count
-    return drop >= settings.collection_drop_threshold or new_count == 0
 
 
 def create_collection(

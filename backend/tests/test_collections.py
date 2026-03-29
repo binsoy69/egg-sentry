@@ -31,25 +31,32 @@ def test_manual_collection_creates_entry_and_resets_current_count(client, auth_h
     assert summary["collection_history"][0]["source"] == "manual"
 
 
-def test_significant_drop_creates_automatic_collection(client, auth_headers: dict, device_headers: dict):
+def test_significant_drop_reconciles_history_without_creating_collection(
+    client,
+    auth_headers: dict,
+    device_headers: dict,
+):
     now = datetime.now(timezone.utc)
     client.post(
         "/api/events",
         json=create_event_payload(timestamp=now, sizes=["medium"] * 5, total_count=5),
         headers=device_headers,
     )
-    client.post(
-        "/api/events",
-        json=create_event_payload(timestamp=now + timedelta(minutes=10), sizes=[], total_count=1),
-        headers=device_headers,
-    )
+
+    drop_payload = create_event_payload(timestamp=now + timedelta(minutes=10), sizes=[], total_count=1)
+    drop_payload["size_breakdown"] = {"medium": 1}
+    client.post("/api/events", json=drop_payload, headers=device_headers)
 
     summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+    history_response = client.get("/api/history", headers=auth_headers)
 
     assert summary_response.status_code == 200
+    assert history_response.status_code == 200
+
     summary = summary_response.json()
+    history = history_response.json()
     assert summary["current_eggs"] == 1
-    assert summary["collected_today"] == 4
-    assert summary["total_today"] == 5
-    assert summary["collection_history"][0]["count"] == 4
-    assert summary["collection_history"][0]["source"] == "automatic"
+    assert summary["collected_today"] == 0
+    assert summary["total_today"] == 1
+    assert summary["collection_history"] == []
+    assert history["total_records"] == 1
