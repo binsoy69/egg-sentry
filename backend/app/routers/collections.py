@@ -14,6 +14,7 @@ from app.services import (
     current_local_date,
     get_device_by_identifier,
     get_primary_device,
+    reconcile_day_detections_to_target,
     utc_now,
 )
 
@@ -59,6 +60,14 @@ def collect_eggs(
 
     today = current_local_date()
     collected_today = collected_count_for_day(db, device, today)
+    reconcile_day_detections_to_target(
+        db,
+        device=device,
+        target_date=today,
+        target_total=collected_today,
+        dry_run=False,
+    )
+    db.commit()
     total_today = count_for_day(db, device, today)
     return CollectionCreateResponse(
         entry=build_collection_entry(entry),
