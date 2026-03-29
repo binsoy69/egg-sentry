@@ -279,3 +279,56 @@ def test_event_ingestion_forces_repeated_unknown_bias_into_balanced_real_sizes(
 
     summary_body = summary_response.json()
     assert summary_body["size_distribution"] == {"S": 1, "M": 1, "L": 2, "XL": 1}
+
+
+def test_single_new_egg_redistributes_when_previous_snapshot_is_biased(
+    client: TestClient,
+    auth_headers: dict,
+    device_headers: dict,
+    db_session,
+):
+    first_timestamp = datetime.now(timezone.utc)
+    first_payload = {
+        "device_id": "cam-001",
+        "timestamp": first_timestamp.isoformat(),
+        "total_count": 1,
+        "new_eggs": [
+            {
+                "size": "jumbo",
+                "confidence": 0.9,
+                "bbox_area_normalized": 0.0051,
+                "detected_at": first_timestamp.isoformat(),
+            }
+        ],
+        "size_breakdown": {"jumbo": 1},
+    }
+    second_timestamp = first_timestamp + timedelta(minutes=1)
+    second_payload = {
+        "device_id": "cam-001",
+        "timestamp": second_timestamp.isoformat(),
+        "total_count": 2,
+        "new_eggs": [
+            {
+                "size": "jumbo",
+                "confidence": 0.9,
+                "bbox_area_normalized": 0.0051,
+                "detected_at": second_timestamp.isoformat(),
+            }
+        ],
+        "size_breakdown": {"jumbo": 2},
+    }
+
+    first_response = client.post("/api/events", json=first_payload, headers=device_headers)
+    second_response = client.post("/api/events", json=second_payload, headers=device_headers)
+    history_response = client.get("/api/history", headers=auth_headers)
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    assert history_response.status_code == 200
+
+    history_sizes = Counter(record["size"] for record in history_response.json()["records"])
+    assert history_sizes == {"jumbo": 1, "extra-large": 1}
+
+    latest_snapshot = db_session.query(CountSnapshot).order_by(CountSnapshot.id.desc()).first()
+    assert latest_snapshot is not None
+    assert latest_snapshot.size_breakdown == {"jumbo": 1, "extra-large": 1}

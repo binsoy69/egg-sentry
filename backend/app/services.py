@@ -18,6 +18,11 @@ CORRECTABLE_SIZE_ORDER = [size for size in SIZE_ORDER if size != "unknown"]
 CORRECTABLE_SIZE_INDEX = {size: index for index, size in enumerate(CORRECTABLE_SIZE_ORDER)}
 EVENT_SIZE_CORRECTION_MIN_SPREAD = 0.00005
 EVENT_SIZE_CORRECTION_RELATIVE_SPREAD = 0.04
+SINGLETON_REDISTRIBUTION_ORDER = {
+    "small": ["medium", "large", "extra-large", "jumbo", "small"],
+    "jumbo": ["extra-large", "large", "medium", "small", "jumbo"],
+    "unknown": ["medium", "large", "extra-large", "small", "jumbo", "unknown"],
+}
 
 
 def app_tz() -> ZoneInfo:
@@ -99,8 +104,34 @@ def _should_redistribute_run(raw_size: str, run: list[tuple[int, EventEggCreate]
     return _has_meaningful_area_spread([egg for _, egg in run])
 
 
-def correct_event_egg_sizes(new_eggs: list[EventEggCreate]) -> list[EventEggCreate]:
+def _correct_singleton_bias(
+    egg: EventEggCreate,
+    previous_size_breakdown: dict[str, int] | None,
+) -> EventEggCreate | None:
+    previous_sizes = previous_size_breakdown or {}
+    if int(previous_sizes.get(egg.size, 0)) <= 0:
+        return None
+
+    candidate_order = SINGLETON_REDISTRIBUTION_ORDER.get(egg.size)
+    if not candidate_order:
+        return None
+
+    minimum_count = min(int(previous_sizes.get(size, 0)) for size in candidate_order)
+    redistributed_size = next(
+        size for size in candidate_order if int(previous_sizes.get(size, 0)) == minimum_count
+    )
+    return egg.model_copy(update={"size": redistributed_size})
+
+
+def correct_event_egg_sizes(
+    new_eggs: list[EventEggCreate],
+    previous_size_breakdown: dict[str, int] | None = None,
+) -> list[EventEggCreate]:
     if len(new_eggs) < 2:
+        if len(new_eggs) == 1:
+            corrected_singleton = _correct_singleton_bias(new_eggs[0], previous_size_breakdown)
+            if corrected_singleton is not None:
+                return [corrected_singleton]
         return list(new_eggs)
 
     corrected = list(new_eggs)

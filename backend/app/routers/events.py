@@ -55,7 +55,10 @@ def ingest_events(
         new_eggs=payload.new_eggs,
         timestamp=payload.timestamp,
     )
-    corrected_event_eggs = correct_event_egg_sizes(event_eggs)
+    corrected_event_eggs = correct_event_egg_sizes(
+        event_eggs,
+        previous_size_breakdown=previous_snapshot.size_breakdown if previous_snapshot else None,
+    )
     snapshot_breakdown = derive_snapshot_size_breakdown(
         previous_snapshot=previous_snapshot,
         total_count=payload.total_count,
