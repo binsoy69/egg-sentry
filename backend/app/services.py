@@ -435,6 +435,47 @@ def count_for_day(db: Session, device: Device, target_date: date) -> int:
     return int(db.execute(stmt).scalar_one() or 0)
 
 
+def reconcile_day_detections_to_target(
+    db: Session,
+    *,
+    device: Device,
+    target_date: date,
+    target_total: int,
+    dry_run: bool = True,
+) -> dict[str, int]:
+    start, end = local_day_bounds(target_date)
+    stmt = (
+        select(EggDetection)
+        .where(
+            EggDetection.device_id == device.id,
+            EggDetection.detected_at >= start,
+            EggDetection.detected_at < end,
+        )
+        .order_by(EggDetection.detected_at.desc(), EggDetection.id.desc())
+    )
+    detections = list(db.execute(stmt).scalars().all())
+    actual_total = len(detections)
+    target_total = max(0, target_total)
+
+    if actual_total <= target_total:
+        return {
+            "actual_total": actual_total,
+            "target_total": target_total,
+            "removed": 0,
+        }
+
+    removable = detections[: actual_total - target_total]
+    if not dry_run:
+        for detection in removable:
+            db.delete(detection)
+
+    return {
+        "actual_total": actual_total,
+        "target_total": target_total,
+        "removed": len(removable),
+    }
+
+
 def latest_snapshot_for_device(db: Session, device: Device) -> CountSnapshot | None:
     stmt = (
         select(CountSnapshot)
