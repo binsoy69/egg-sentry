@@ -8,6 +8,7 @@ from app.schemas import CollectionCreateRequest, CollectionCreateResponse
 from app.services import (
     build_collection_entry,
     collected_count_for_day,
+    count_for_day,
     create_collection,
     current_count_for_device,
     current_local_date,
@@ -58,9 +59,10 @@ def collect_eggs(
 
     today = current_local_date()
     collected_today = collected_count_for_day(db, device, today)
+    total_today = count_for_day(db, device, today)
     return CollectionCreateResponse(
         entry=build_collection_entry(entry),
         current_eggs=0,
         collected_today=collected_today,
-        total_today=collected_today,
+        total_today=total_today,
     )

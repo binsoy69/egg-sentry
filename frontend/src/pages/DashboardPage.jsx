@@ -143,7 +143,12 @@ const DashboardPage = () => {
     : null;
   const currentEggs = summary?.current_eggs ?? summary?.device?.current_count ?? primaryDevice?.current_count ?? 0;
   const collectedToday = summary?.collected_today ?? summary?.device?.collected_today ?? primaryDevice?.collected_today ?? 0;
-  const totalToday = summary?.today_eggs ?? summary?.total_today ?? currentEggs + collectedToday;
+  const totalToday =
+    summary?.today_eggs ??
+    summary?.total_today ??
+    summary?.device?.today_count ??
+    primaryDevice?.today_count ??
+    currentEggs + collectedToday;
   const allTimeEggs = summary?.all_time_eggs || 0;
   const bestDayLabel = summary?.best_day?.date
     ? `${summary.best_day.date} (${summary.best_day.count})`

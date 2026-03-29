@@ -63,7 +63,7 @@ def summary(
     today = current_local_date()
     current_count = current_count_for_device(db, device)
     collected_today = collected_count_for_day(db, device, today)
-    today_count = current_count + collected_today
+    today_count = count_for_day(db, device, today)
     previous_day_total = count_for_day(db, device, today - timedelta(days=1))
     best_date, best_count = best_day_from_detections(all_detections)
     top_size, top_size_count = top_size_from_detections(all_detections)
