@@ -219,3 +219,63 @@ def test_event_ingestion_forces_repeated_small_bias_upward_even_without_area_spr
 
     summary_body = summary_response.json()
     assert summary_body["size_distribution"] == {"S": 1, "M": 2, "L": 1, "XL": 1}
+
+
+def test_event_ingestion_forces_repeated_unknown_bias_into_balanced_real_sizes(
+    client: TestClient,
+    auth_headers: dict,
+    device_headers: dict,
+):
+    timestamp = datetime.now(timezone.utc)
+    payload = {
+        "device_id": "cam-001",
+        "timestamp": timestamp.isoformat(),
+        "total_count": 5,
+        "new_eggs": [
+            {
+                "size": "unknown",
+                "confidence": 0.5,
+                "bbox_area_normalized": 0.0025,
+                "detected_at": timestamp.isoformat(),
+            },
+            {
+                "size": "unknown",
+                "confidence": 0.5,
+                "bbox_area_normalized": 0.0025,
+                "detected_at": (timestamp + timedelta(microseconds=1)).isoformat(),
+            },
+            {
+                "size": "unknown",
+                "confidence": 0.5,
+                "bbox_area_normalized": 0.0025,
+                "detected_at": (timestamp + timedelta(microseconds=2)).isoformat(),
+            },
+            {
+                "size": "unknown",
+                "confidence": 0.5,
+                "bbox_area_normalized": 0.0025,
+                "detected_at": (timestamp + timedelta(microseconds=3)).isoformat(),
+            },
+            {
+                "size": "large",
+                "confidence": 0.88,
+                "bbox_area_normalized": 0.003,
+                "detected_at": (timestamp + timedelta(microseconds=4)).isoformat(),
+            },
+        ],
+        "size_breakdown": {"unknown": 4, "large": 1},
+    }
+
+    ingest_response = client.post("/api/events", json=payload, headers=device_headers)
+    history_response = client.get("/api/history", headers=auth_headers)
+    summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+
+    assert ingest_response.status_code == 201
+    assert history_response.status_code == 200
+    assert summary_response.status_code == 200
+
+    history_sizes = Counter(record["size"] for record in history_response.json()["records"])
+    assert history_sizes == {"small": 1, "medium": 1, "large": 2, "extra-large": 1}
+
+    summary_body = summary_response.json()
+    assert summary_body["size_distribution"] == {"S": 1, "M": 1, "L": 2, "XL": 1}

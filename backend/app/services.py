@@ -55,7 +55,21 @@ def size_display(size: str | None) -> str:
     return SIZE_DISPLAY_MAP.get(size, size.upper())
 
 
+def _centered_correction_indices(count: int) -> list[int]:
+    if count <= len(CORRECTABLE_SIZE_ORDER):
+        start = max(0, (len(CORRECTABLE_SIZE_ORDER) - count) // 2)
+        return [start + offset for offset in range(count)]
+
+    indices: list[int] = []
+    while len(indices) < count:
+        indices.extend(range(len(CORRECTABLE_SIZE_ORDER)))
+    return indices[:count]
+
+
 def _size_correction_indices(size: str, count: int) -> list[int]:
+    if size == "unknown":
+        return _centered_correction_indices(count)
+
     base_index = CORRECTABLE_SIZE_INDEX[size]
     max_index = len(CORRECTABLE_SIZE_ORDER) - 1
     if count <= len(CORRECTABLE_SIZE_ORDER):
@@ -80,7 +94,7 @@ def _has_meaningful_area_spread(event_eggs: list[EventEggCreate]) -> bool:
 def _should_redistribute_run(raw_size: str, run: list[tuple[int, EventEggCreate]]) -> bool:
     if len(run) < 2:
         return False
-    if raw_size in {"small", "jumbo"}:
+    if raw_size in {"small", "jumbo", "unknown"}:
         return True
     return _has_meaningful_area_spread([egg for _, egg in run])
 
@@ -93,7 +107,8 @@ def correct_event_egg_sizes(new_eggs: list[EventEggCreate]) -> list[EventEggCrea
     sortable = [
         (index, egg)
         for index, egg in enumerate(new_eggs)
-        if egg.size in CORRECTABLE_SIZE_INDEX and egg.bbox_area_normalized is not None
+        if (egg.size in CORRECTABLE_SIZE_INDEX or egg.size == "unknown")
+        and egg.bbox_area_normalized is not None
     ]
     if len(sortable) < 2:
         return corrected
