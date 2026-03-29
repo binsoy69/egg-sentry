@@ -77,6 +77,14 @@ def _has_meaningful_area_spread(event_eggs: list[EventEggCreate]) -> bool:
     return spread >= threshold
 
 
+def _should_redistribute_run(raw_size: str, run: list[tuple[int, EventEggCreate]]) -> bool:
+    if len(run) < 2:
+        return False
+    if raw_size in {"small", "jumbo"}:
+        return True
+    return _has_meaningful_area_spread([egg for _, egg in run])
+
+
 def correct_event_egg_sizes(new_eggs: list[EventEggCreate]) -> list[EventEggCreate]:
     if len(new_eggs) < 2:
         return list(new_eggs)
@@ -106,7 +114,7 @@ def correct_event_egg_sizes(new_eggs: list[EventEggCreate]) -> list[EventEggCrea
             run_end += 1
 
         run = sortable[cursor:run_end]
-        if len(run) > 1 and _has_meaningful_area_spread([egg for _, egg in run]):
+        if _should_redistribute_run(raw_size, run):
             assigned_indices = _size_correction_indices(raw_size, len(run))
             for assigned_index, (original_index, egg) in zip(assigned_indices, run):
                 corrected[original_index] = egg.model_copy(

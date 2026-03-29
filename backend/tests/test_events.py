@@ -99,3 +99,123 @@ def test_event_ingestion_corrects_repeated_sizes_for_ui_and_snapshot(
     snapshot = db_session.query(CountSnapshot).order_by(CountSnapshot.id.desc()).first()
     assert snapshot is not None
     assert snapshot.size_breakdown == {"large": 1, "extra-large": 1, "jumbo": 1}
+
+
+def test_event_ingestion_forces_repeated_jumbo_bias_downward_even_without_area_spread(
+    client: TestClient,
+    auth_headers: dict,
+    device_headers: dict,
+):
+    timestamp = datetime.now(timezone.utc)
+    payload = {
+        "device_id": "cam-001",
+        "timestamp": timestamp.isoformat(),
+        "total_count": 5,
+        "new_eggs": [
+            {
+                "size": "large",
+                "confidence": 0.88,
+                "bbox_area_normalized": 0.004,
+                "detected_at": timestamp.isoformat(),
+            },
+            {
+                "size": "jumbo",
+                "confidence": 0.9,
+                "bbox_area_normalized": 0.005,
+                "detected_at": (timestamp + timedelta(microseconds=1)).isoformat(),
+            },
+            {
+                "size": "jumbo",
+                "confidence": 0.9,
+                "bbox_area_normalized": 0.005,
+                "detected_at": (timestamp + timedelta(microseconds=2)).isoformat(),
+            },
+            {
+                "size": "jumbo",
+                "confidence": 0.9,
+                "bbox_area_normalized": 0.005,
+                "detected_at": (timestamp + timedelta(microseconds=3)).isoformat(),
+            },
+            {
+                "size": "jumbo",
+                "confidence": 0.9,
+                "bbox_area_normalized": 0.005,
+                "detected_at": (timestamp + timedelta(microseconds=4)).isoformat(),
+            },
+        ],
+        "size_breakdown": {"large": 1, "jumbo": 4},
+    }
+
+    ingest_response = client.post("/api/events", json=payload, headers=device_headers)
+    history_response = client.get("/api/history", headers=auth_headers)
+    summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+
+    assert ingest_response.status_code == 201
+    assert history_response.status_code == 200
+    assert summary_response.status_code == 200
+
+    history_sizes = Counter(record["size"] for record in history_response.json()["records"])
+    assert history_sizes == {"medium": 1, "large": 2, "extra-large": 1, "jumbo": 1}
+
+    summary_body = summary_response.json()
+    assert summary_body["size_distribution"] == {"M": 1, "L": 2, "XL": 1, "Jumbo": 1}
+
+
+def test_event_ingestion_forces_repeated_small_bias_upward_even_without_area_spread(
+    client: TestClient,
+    auth_headers: dict,
+    device_headers: dict,
+):
+    timestamp = datetime.now(timezone.utc)
+    payload = {
+        "device_id": "cam-001",
+        "timestamp": timestamp.isoformat(),
+        "total_count": 5,
+        "new_eggs": [
+            {
+                "size": "small",
+                "confidence": 0.9,
+                "bbox_area_normalized": 0.002,
+                "detected_at": timestamp.isoformat(),
+            },
+            {
+                "size": "small",
+                "confidence": 0.9,
+                "bbox_area_normalized": 0.002,
+                "detected_at": (timestamp + timedelta(microseconds=1)).isoformat(),
+            },
+            {
+                "size": "small",
+                "confidence": 0.9,
+                "bbox_area_normalized": 0.002,
+                "detected_at": (timestamp + timedelta(microseconds=2)).isoformat(),
+            },
+            {
+                "size": "small",
+                "confidence": 0.9,
+                "bbox_area_normalized": 0.002,
+                "detected_at": (timestamp + timedelta(microseconds=3)).isoformat(),
+            },
+            {
+                "size": "medium",
+                "confidence": 0.88,
+                "bbox_area_normalized": 0.003,
+                "detected_at": (timestamp + timedelta(microseconds=4)).isoformat(),
+            },
+        ],
+        "size_breakdown": {"small": 4, "medium": 1},
+    }
+
+    ingest_response = client.post("/api/events", json=payload, headers=device_headers)
+    history_response = client.get("/api/history", headers=auth_headers)
+    summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+
+    assert ingest_response.status_code == 201
+    assert history_response.status_code == 200
+    assert summary_response.status_code == 200
+
+    history_sizes = Counter(record["size"] for record in history_response.json()["records"])
+    assert history_sizes == {"small": 1, "medium": 2, "large": 1, "extra-large": 1}
+
+    summary_body = summary_response.json()
+    assert summary_body["size_distribution"] == {"S": 1, "M": 2, "L": 1, "XL": 1}
