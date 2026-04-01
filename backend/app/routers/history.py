@@ -11,6 +11,7 @@ from app.services import (
     build_collection_history_records,
     get_device_by_identifier,
     query_collections,
+    resolve_collection_size_breakdowns,
 )
 
 
@@ -43,9 +44,10 @@ def get_history(
     device = get_device_by_identifier(db, device_id) if device_id else None
     filter_size = size_class or (None if size == "all" else size)
     collections = query_collections(db, device=device, start=start, end=end)
+    resolved_breakdowns = resolve_collection_size_breakdowns(db, collections)
     records = []
     for collection in reversed(collections):
-        records.extend(build_collection_history_records(collection))
+        records.extend(build_collection_history_records(collection, resolved_breakdowns.get(collection.id)))
     if filter_size:
         records = [item for item in records if item.size == filter_size]
     total_records = len(records)

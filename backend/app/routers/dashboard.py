@@ -17,6 +17,7 @@ from app.schemas import (
 from app.services import (
     app_tz,
     aggregate_collection_sizes,
+    aggregate_collection_sizes_from_breakdowns,
     average_per_day,
     best_day_from_collections,
     build_collection_entry,
@@ -30,6 +31,7 @@ from app.services import (
     list_collections_for_day,
     month_bounds,
     query_collections,
+    resolve_collection_size_breakdowns,
     size_display,
     status_for_device,
     top_size_from_collections,
@@ -60,14 +62,18 @@ def summary(
     db.commit()
 
     all_collections = query_collections(db, device=device)
+    resolved_breakdowns = resolve_collection_size_breakdowns(db, all_collections)
     today = current_local_date()
     current_count = current_count_for_device(db, device)
     collected_today = collected_count_for_day(db, device, today)
     today_count = collected_today
     previous_day_total = collected_count_for_day(db, device, today - timedelta(days=1))
     best_date, best_count = best_day_from_collections(all_collections)
-    top_size, top_size_count = top_size_from_collections(all_collections)
-    size_counts = aggregate_collection_sizes(all_collections)
+    top_size, top_size_count = top_size_from_collections(all_collections, resolved_breakdowns=resolved_breakdowns)
+    size_counts = aggregate_collection_sizes_from_breakdowns(
+        all_collections,
+        resolved_breakdowns=resolved_breakdowns,
+    )
     is_online, status = status_for_device(device)
     collection_history = list_collections_for_day(db, device, today)
 
@@ -193,7 +199,8 @@ def size_distribution(
         start=datetime.combine(from_date, time.min, tzinfo=app_tz()).astimezone(timezone.utc),
         end=datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=app_tz()).astimezone(timezone.utc),
     )
-    counts = aggregate_collection_sizes(collections)
+    resolved_breakdowns = resolve_collection_size_breakdowns(db, collections)
+    counts = aggregate_collection_sizes_from_breakdowns(collections, resolved_breakdowns=resolved_breakdowns)
     items = [
         SizeDistributionItem(size=size, display=size_display(size), count=counts.get(size, 0))
         for size in ["small", "medium", "large", "extra-large", "jumbo"]

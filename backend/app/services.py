@@ -199,12 +199,36 @@ def normalize_collection_size_breakdown(
     total_count: int,
     size_breakdown: dict[str, int] | None,
 ) -> dict[str, int] | None:
-    normalized = normalize_size_breakdown(total_count, size_breakdown)
-    if normalized is not None:
-        return normalized
+    return normalize_size_breakdown(total_count, size_breakdown)
+
+
+def _unknown_collection_size_breakdown(total_count: int) -> dict[str, int] | None:
     if total_count <= 0:
         return None
     return {"unknown": total_count}
+
+
+def _is_unknown_only_breakdown(size_breakdown: dict[str, int] | None) -> bool:
+    if not size_breakdown:
+        return False
+    normalized = {size: max(int(count), 0) for size, count in size_breakdown.items() if int(count) > 0}
+    if not normalized:
+        return False
+    return normalized.get("unknown", 0) == sum(normalized.values())
+
+
+def _collection_breakdown_from_detections(
+    detections: list[EggDetection],
+    expected_count: int,
+) -> dict[str, int] | None:
+    if expected_count <= 0:
+        return None
+    counts = aggregate_sizes(detections, include_unknown=True)
+    actual_total = sum(counts.values())
+    if actual_total < expected_count:
+        counts["unknown"] = counts.get("unknown", 0) + (expected_count - actual_total)
+    normalized = {size: count for size, count in counts.items() if count > 0}
+    return normalized or _unknown_collection_size_breakdown(expected_count)
 
 
 def derive_snapshot_size_breakdown(
@@ -619,17 +643,64 @@ def create_collection(
     return collection
 
 
-def build_collection_history_records(collection: EggCollection) -> list[HistoryRecord]:
+def resolve_collection_size_breakdowns(
+    db: Session,
+    collections: list[EggCollection],
+) -> dict[int, dict[str, int] | None]:
+    grouped: dict[tuple[int, date], list[EggCollection]] = defaultdict(list)
+    resolved: dict[int, dict[str, int] | None] = {}
+
+    for collection in collections:
+        grouped[(collection.device_id, localize(collection.collected_at).date())].append(collection)
+
+    for (device_id, target_date), day_collections in grouped.items():
+        start, end = local_day_bounds(target_date)
+        stmt = (
+            select(EggDetection)
+            .where(
+                EggDetection.device_id == device_id,
+                EggDetection.detected_at >= start,
+                EggDetection.detected_at < end,
+            )
+            .order_by(EggDetection.detected_at.asc(), EggDetection.id.asc())
+        )
+        day_detections = list(db.execute(stmt).scalars().all())
+        cursor = 0
+
+        for collection in sorted(day_collections, key=lambda item: (ensure_aware(item.collected_at), item.id)):
+            count = max(int(collection.collected_count), 0)
+            derived = _collection_breakdown_from_detections(day_detections[cursor : cursor + count], count)
+            stored = normalize_collection_size_breakdown(count, collection.size_breakdown)
+            cursor += count
+
+            if stored and not _is_unknown_only_breakdown(stored):
+                resolved[collection.id] = stored
+                continue
+            if derived and not _is_unknown_only_breakdown(derived):
+                resolved[collection.id] = derived
+                continue
+            if stored:
+                resolved[collection.id] = stored
+                continue
+            resolved[collection.id] = derived or _unknown_collection_size_breakdown(count)
+
+    return resolved
+
+
+def build_collection_history_records(
+    collection: EggCollection,
+    size_breakdown: dict[str, int] | None = None,
+) -> list[HistoryRecord]:
     local_dt = localize(collection.collected_at)
     display = local_dt.strftime("%b %d, %Y, %I:%M %p")
     device = collection.device.device_id if collection.device else ""
-    size_breakdown = normalize_collection_size_breakdown(collection.collected_count, collection.size_breakdown) or {}
-    size_order = list(dict.fromkeys([*SIZE_ORDER, *size_breakdown.keys()]))
+    resolved_breakdown = size_breakdown or _unknown_collection_size_breakdown(collection.collected_count) or {}
+    size_order = list(dict.fromkeys([*SIZE_ORDER, *resolved_breakdown.keys()]))
     records: list[HistoryRecord] = []
     offset = 1
 
     for size in size_order:
-        count = max(int(size_breakdown.get(size, 0)), 0)
+        count = max(int(resolved_breakdown.get(size, 0)), 0)
         if count <= 0:
             continue
         display_size = size_display(size)
@@ -662,9 +733,27 @@ def aggregate_collection_counts_by_day(collections: list[EggCollection]) -> dict
 
 
 def aggregate_collection_sizes(collections: list[EggCollection], include_unknown: bool = False) -> dict[str, int]:
+    resolved_breakdowns = {
+        collection.id: normalize_collection_size_breakdown(collection.collected_count, collection.size_breakdown)
+        or _unknown_collection_size_breakdown(collection.collected_count)
+        for collection in collections
+    }
+    return aggregate_collection_sizes_from_breakdowns(
+        collections,
+        resolved_breakdowns=resolved_breakdowns,
+        include_unknown=include_unknown,
+    )
+
+
+def aggregate_collection_sizes_from_breakdowns(
+    collections: list[EggCollection],
+    *,
+    resolved_breakdowns: dict[int, dict[str, int] | None],
+    include_unknown: bool = False,
+) -> dict[str, int]:
     counts: dict[str, int] = {size: 0 for size in SIZE_ORDER if include_unknown or size != "unknown"}
     for collection in collections:
-        size_breakdown = normalize_collection_size_breakdown(collection.collected_count, collection.size_breakdown) or {}
+        size_breakdown = resolved_breakdowns.get(collection.id) or {}
         for size, count in size_breakdown.items():
             if size == "unknown" and not include_unknown:
                 continue
@@ -680,8 +769,20 @@ def best_day_from_collections(collections: list[EggCollection]) -> tuple[date | 
     return best_date, count
 
 
-def top_size_from_collections(collections: list[EggCollection]) -> tuple[str | None, int]:
-    counts = aggregate_collection_sizes(collections, include_unknown=False)
+def top_size_from_collections(
+    collections: list[EggCollection],
+    *,
+    resolved_breakdowns: dict[int, dict[str, int] | None] | None = None,
+) -> tuple[str | None, int]:
+    counts = (
+        aggregate_collection_sizes_from_breakdowns(
+            collections,
+            resolved_breakdowns=resolved_breakdowns,
+            include_unknown=False,
+        )
+        if resolved_breakdowns is not None
+        else aggregate_collection_sizes(collections, include_unknown=False)
+    )
     populated = [(size, count) for size, count in counts.items() if count > 0]
     if not populated:
         return None, 0

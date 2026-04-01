@@ -1,7 +1,8 @@
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from app.models import CountSnapshot, Device, EggDetection
-from app.services import count_for_day, current_local_date, local_day_bounds
+from app.services import count_for_day, create_collection, current_local_date, local_day_bounds
 from tests.helpers import create_event_payload
 
 
@@ -117,3 +118,48 @@ def test_manual_collection_reconciles_excess_today_detections(
     assert summary["total_today"] == 11
     assert history["total_records"] == 11
     assert count_for_day(db_session, device, today) == 11
+
+
+def test_legacy_collection_history_recovers_sizes_from_day_detections(
+    client,
+    auth_headers: dict,
+    db_session,
+):
+    device = db_session.query(Device).filter(Device.device_id == "cam-001").one()
+    today = current_local_date()
+    start, _ = local_day_bounds(today)
+    detection_time = start + timedelta(hours=9)
+
+    db_session.add_all(
+        [
+            EggDetection(
+                device_id=device.id,
+                size=size,
+                confidence=0.91,
+                bbox_area_normalized=0.0031,
+                detected_at=detection_time + timedelta(seconds=index),
+            )
+            for index, size in enumerate(["medium", "large", "large"])
+        ]
+    )
+    create_collection(
+        db_session,
+        device=device,
+        collected_count=3,
+        before_count=3,
+        after_count=0,
+        source="manual",
+        collected_at=detection_time + timedelta(minutes=30),
+        size_breakdown=None,
+    )
+    db_session.commit()
+
+    summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+    history_response = client.get("/api/history", headers=auth_headers)
+
+    assert summary_response.status_code == 200
+    assert history_response.status_code == 200
+
+    history_sizes = Counter(record["size"] for record in history_response.json()["records"])
+    assert history_sizes == {"medium": 1, "large": 2}
+    assert summary_response.json()["size_distribution"] == {"M": 1, "L": 2}
