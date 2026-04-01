@@ -4,7 +4,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "004_add_collection_size_breakdown"
+revision = "004_collection_sizes"
 down_revision = "003_add_device_chicken_age"
 branch_labels = None
 depends_on = None
