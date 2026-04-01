@@ -57,7 +57,7 @@ const DailyChart = ({ data }) => {
           <Area
             type="monotone"
             dataKey="count"
-            name="Eggs Counted"
+            name="Eggs Collected"
             stroke="#FDB813"
             fill="url(#egg-production-fill)"
             strokeWidth={3}

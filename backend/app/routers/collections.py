@@ -8,12 +8,12 @@ from app.schemas import CollectionCreateRequest, CollectionCreateResponse
 from app.services import (
     build_collection_entry,
     collected_count_for_day,
-    count_for_day,
     create_collection,
     current_count_for_device,
     current_local_date,
     get_device_by_identifier,
     get_primary_device,
+    latest_snapshot_for_device,
     reconcile_day_detections_to_target,
     utc_now,
 )
@@ -37,6 +37,7 @@ def collect_eggs(
         raise HTTPException(status_code=400, detail="No eggs available to collect")
 
     collected_at = utc_now()
+    latest_snapshot = latest_snapshot_for_device(db, device)
     entry = create_collection(
         db,
         device=device,
@@ -45,6 +46,7 @@ def collect_eggs(
         after_count=0,
         source="manual",
         collected_at=collected_at,
+        size_breakdown=latest_snapshot.size_breakdown if latest_snapshot else None,
         user=current_user,
     )
     db.add(
@@ -68,7 +70,7 @@ def collect_eggs(
         dry_run=False,
     )
     db.commit()
-    total_today = count_for_day(db, device, today)
+    total_today = collected_today
     return CollectionCreateResponse(
         entry=build_collection_entry(entry),
         current_eggs=0,

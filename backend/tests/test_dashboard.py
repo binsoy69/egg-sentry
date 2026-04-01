@@ -3,16 +3,34 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 from app.models import CountSnapshot, Device, EggDetection
-from app.services import current_local_date, local_day_bounds
-from tests.helpers import create_event_payload
+from app.services import create_collection, current_local_date, local_day_bounds
 
 
-def test_dashboard_summary_and_period_dist(client: TestClient, auth_headers: dict, device_headers: dict):
+def test_dashboard_summary_and_period_dist(client: TestClient, auth_headers: dict, db_session):
     now = datetime.now(timezone.utc)
     yesterday = now - timedelta(days=1)
-
-    client.post("/api/events", json=create_event_payload(timestamp=yesterday, sizes=["medium"]), headers=device_headers)
-    client.post("/api/events", json=create_event_payload(timestamp=now, sizes=["large", "large"]), headers=device_headers)
+    device = db_session.query(Device).filter(Device.device_id == "cam-001").one()
+    create_collection(
+        db_session,
+        device=device,
+        collected_count=1,
+        before_count=1,
+        after_count=0,
+        source="manual",
+        collected_at=yesterday,
+        size_breakdown={"medium": 1},
+    )
+    create_collection(
+        db_session,
+        device=device,
+        collected_count=2,
+        before_count=2,
+        after_count=0,
+        source="manual",
+        collected_at=now,
+        size_breakdown={"large": 2},
+    )
+    db_session.commit()
 
     summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
     period_response = client.get("/api/dashboard/period-dist?period=week", headers=auth_headers)
@@ -21,6 +39,7 @@ def test_dashboard_summary_and_period_dist(client: TestClient, auth_headers: dic
     body = summary_response.json()
     assert body["total_today"] == 2
     assert body["previous_day_total"] == 1
+    assert body["current_eggs"] == 0
     assert body["device"]["device_id"] == "cam-001"
 
     assert period_response.status_code == 200
@@ -28,7 +47,7 @@ def test_dashboard_summary_and_period_dist(client: TestClient, auth_headers: dic
     assert len(period_response.json()["daily_data"]) == 7
 
 
-def test_dashboard_today_total_uses_daily_detections_not_latest_live_count(
+def test_dashboard_today_total_uses_collections_not_latest_live_count_or_detections(
     client: TestClient,
     auth_headers: dict,
     db_session,
@@ -71,7 +90,7 @@ def test_dashboard_today_total_uses_daily_detections_not_latest_live_count(
 
     assert summary["current_eggs"] == 11
     assert summary["collected_today"] == 0
-    assert summary["today_eggs"] == 15
-    assert summary["total_today"] == 15
-    assert summary["device"]["today_count"] == 15
-    assert history["total_records"] == 15
+    assert summary["today_eggs"] == 0
+    assert summary["total_today"] == 0
+    assert summary["device"]["today_count"] == 0
+    assert history["total_records"] == 0

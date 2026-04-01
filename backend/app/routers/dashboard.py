@@ -15,25 +15,25 @@ from app.schemas import (
     SizeDistributionResponse,
 )
 from app.services import (
-    aggregate_sizes,
     app_tz,
+    aggregate_collection_sizes,
     average_per_day,
-    best_day_from_detections,
+    best_day_from_collections,
     build_collection_entry,
     collected_count_for_day,
-    count_for_day,
     current_count_for_device,
     current_local_date,
-    daily_chart_points,
+    daily_chart_points_from_collections,
     evaluate_alerts,
     get_device_by_identifier,
     get_primary_device,
     list_collections_for_day,
     month_bounds,
-    query_detections,
+    query_collections,
     size_display,
     status_for_device,
-    top_size_from_detections,
+    top_size_from_collections,
+    total_collected_eggs,
     week_of_month_bounds,
     year_bounds,
 )
@@ -59,15 +59,15 @@ def summary(
     evaluate_alerts(db, device)
     db.commit()
 
-    all_detections = query_detections(db, device=device)
+    all_collections = query_collections(db, device=device)
     today = current_local_date()
     current_count = current_count_for_device(db, device)
     collected_today = collected_count_for_day(db, device, today)
-    today_count = count_for_day(db, device, today)
-    previous_day_total = count_for_day(db, device, today - timedelta(days=1))
-    best_date, best_count = best_day_from_detections(all_detections)
-    top_size, top_size_count = top_size_from_detections(all_detections)
-    size_counts = aggregate_sizes(all_detections)
+    today_count = collected_today
+    previous_day_total = collected_count_for_day(db, device, today - timedelta(days=1))
+    best_date, best_count = best_day_from_collections(all_collections)
+    top_size, top_size_count = top_size_from_collections(all_collections)
+    size_counts = aggregate_collection_sizes(all_collections)
     is_online, status = status_for_device(device)
     collection_history = list_collections_for_day(db, device, today)
 
@@ -86,7 +86,7 @@ def summary(
     )
     return DashboardSummaryResponse(
         today_eggs=today_count,
-        all_time_eggs=len(all_detections),
+        all_time_eggs=total_collected_eggs(all_collections),
         current_eggs=current_count,
         collected_today=collected_today,
         best_day={"date": best_date.isoformat() if best_date else None, "count": best_count},
@@ -110,8 +110,8 @@ def weekly(
 ):
     device = _resolve_device(db, device_id)
     start, end, first_day, last_day = week_of_month_bounds(year, month, week)
-    detections = query_detections(db, device=device, start=start, end=end)
-    total = len(detections)
+    collections = query_collections(db, device=device, start=start, end=end)
+    total = total_collected_eggs(collections)
     days = max((last_day - first_day).days + 1, 1)
     return PeriodStatsResponse(
         period=f"Week {week} ({first_day.day:02d}-{last_day.day:02d})",
@@ -132,15 +132,16 @@ def monthly(
 ):
     device = _resolve_device(db, device_id)
     start, end = month_bounds(year, month)
-    detections = query_detections(db, device=device, start=start, end=end)
+    collections = query_collections(db, device=device, start=start, end=end)
+    total = total_collected_eggs(collections)
     local_start = start.astimezone(app_tz()).date()
     local_end = (end - timedelta(days=1)).astimezone(app_tz()).date()
     days = (local_end - local_start).days + 1
     return PeriodStatsResponse(
         month=local_start.strftime("%B"),
         year=year,
-        total_eggs=len(detections),
-        avg_per_day=average_per_day(len(detections), days),
+        total_eggs=total,
+        avg_per_day=average_per_day(total, days),
     )
 
 
@@ -153,9 +154,10 @@ def yearly(
 ):
     device = _resolve_device(db, device_id)
     start, end = year_bounds(year)
-    detections = query_detections(db, device=device, start=start, end=end)
+    collections = query_collections(db, device=device, start=start, end=end)
+    total = total_collected_eggs(collections)
     day_count = (date(year + 1, 1, 1) - date(year, 1, 1)).days
-    return PeriodStatsResponse(year=year, total_eggs=len(detections), avg_per_day=average_per_day(len(detections), day_count))
+    return PeriodStatsResponse(year=year, total_eggs=total, avg_per_day=average_per_day(total, day_count))
 
 
 @router.get("/daily-chart", response_model=DailyChartResponse)
@@ -167,13 +169,13 @@ def daily_chart(
     _=Depends(get_current_user),
 ):
     device = _resolve_device(db, device_id)
-    detections = query_detections(
+    collections = query_collections(
         db,
         device=device,
         start=datetime.combine(from_date, time.min, tzinfo=app_tz()).astimezone(timezone.utc),
         end=datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=app_tz()).astimezone(timezone.utc),
     )
-    return DailyChartResponse(data=daily_chart_points(detections, from_date, to_date))
+    return DailyChartResponse(data=daily_chart_points_from_collections(collections, from_date, to_date))
 
 
 @router.get("/size-distribution", response_model=SizeDistributionResponse)
@@ -185,13 +187,13 @@ def size_distribution(
     _=Depends(get_current_user),
 ):
     device = _resolve_device(db, device_id)
-    detections = query_detections(
+    collections = query_collections(
         db,
         device=device,
         start=datetime.combine(from_date, time.min, tzinfo=app_tz()).astimezone(timezone.utc),
         end=datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=app_tz()).astimezone(timezone.utc),
     )
-    counts = aggregate_sizes(detections)
+    counts = aggregate_collection_sizes(collections)
     items = [
         SizeDistributionItem(size=size, display=size_display(size), count=counts.get(size, 0))
         for size in ["small", "medium", "large", "extra-large", "jumbo"]
@@ -214,10 +216,13 @@ def period_dist(
         start_date = today - timedelta(days=29)
     else:
         start_date = today - timedelta(days=364)
-    detections = query_detections(
+    collections = query_collections(
         db,
         device=device,
         start=datetime.combine(start_date, time.min, tzinfo=app_tz()).astimezone(timezone.utc),
         end=datetime.combine(today + timedelta(days=1), time.min, tzinfo=app_tz()).astimezone(timezone.utc),
     )
-    return CompatibilityPeriodDistResponse(period=period, daily_data=daily_chart_points(detections, start_date, today))
+    return CompatibilityPeriodDistResponse(
+        period=period,
+        daily_data=daily_chart_points_from_collections(collections, start_date, today),
+    )

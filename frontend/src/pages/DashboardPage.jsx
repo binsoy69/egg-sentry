@@ -184,7 +184,7 @@ const DashboardPage = () => {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-dark-slate sm:text-3xl">Dashboard</h1>
-          <p className="mt-2 text-sm text-gray-500">Egg production overview, live nest count, and collection tracking</p>
+          <p className="mt-2 text-sm text-gray-500">Collected egg totals, live nest count, and collection tracking</p>
         </div>
 
         <button
@@ -310,7 +310,7 @@ const DashboardPage = () => {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="xl:col-span-2 rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
-          <h2 className="mb-4 text-lg font-semibold text-dark-slate">Daily Egg Production</h2>
+          <h2 className="mb-4 text-lg font-semibold text-dark-slate">Daily Collected Eggs</h2>
           <div className="flex min-h-[16rem] items-center justify-center">
             {dashLoading || devicesLoading ? (
               <div className="h-12 w-12 animate-spin rounded-full border-4 border-yolk-yellow border-t-transparent"></div>
@@ -321,7 +321,7 @@ const DashboardPage = () => {
         </div>
 
         <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
-          <h2 className="mb-4 text-lg font-semibold text-dark-slate">Egg Size Distribution</h2>
+          <h2 className="mb-4 text-lg font-semibold text-dark-slate">Collected Egg Size Distribution</h2>
           <div className="flex min-h-[16rem] items-center justify-center">
             {dashLoading || devicesLoading ? (
               <div className="h-12 w-12 animate-spin rounded-full border-4 border-sage-green border-t-transparent"></div>

@@ -92,6 +92,7 @@ class EggCollection(Base):
     before_count: Mapped[int] = mapped_column(Integer, nullable=False)
     after_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     source: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    size_breakdown: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now()

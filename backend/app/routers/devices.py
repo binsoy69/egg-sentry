@@ -15,7 +15,6 @@ from app.schemas import (
 )
 from app.services import (
     collected_count_for_day,
-    count_for_day,
     current_count_for_device,
     current_local_date,
     evaluate_alerts,
@@ -44,7 +43,7 @@ def _serialize_chicken_age(device: Device) -> ChickenAgeRead | None:
 def _serialize_device(db: Session, device: Device) -> DeviceRead:
     is_online, status = status_for_device(device)
     today = current_local_date()
-    today_count = count_for_day(db, device, today)
+    today_count = collected_count_for_day(db, device, today)
     current_count = current_count_for_device(db, device)
     collected_today = collected_count_for_day(db, device, today)
     return DeviceRead(

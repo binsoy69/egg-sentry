@@ -59,9 +59,9 @@ def test_significant_drop_reconciles_history_without_creating_collection(
     history = history_response.json()
     assert summary["current_eggs"] == 1
     assert summary["collected_today"] == 0
-    assert summary["total_today"] == 1
+    assert summary["total_today"] == 0
     assert summary["collection_history"] == []
-    assert history["total_records"] == 1
+    assert history["total_records"] == 0
 
 
 def test_manual_collection_reconciles_excess_today_detections(

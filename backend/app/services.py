@@ -195,6 +195,18 @@ def normalize_size_breakdown(total_count: int, size_breakdown: dict[str, int] | 
     return normalized or None
 
 
+def normalize_collection_size_breakdown(
+    total_count: int,
+    size_breakdown: dict[str, int] | None,
+) -> dict[str, int] | None:
+    normalized = normalize_size_breakdown(total_count, size_breakdown)
+    if normalized is not None:
+        return normalized
+    if total_count <= 0:
+        return None
+    return {"unknown": total_count}
+
+
 def derive_snapshot_size_breakdown(
     *,
     previous_snapshot: CountSnapshot | None,
@@ -363,6 +375,26 @@ def query_detections(
     if end:
         stmt = stmt.where(EggDetection.detected_at < ensure_aware(end))
     return list(db.execute(stmt).scalars().all())
+
+
+def query_collections(
+    db: Session,
+    *,
+    device: Device | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> list[EggCollection]:
+    stmt = select(EggCollection).order_by(EggCollection.collected_at.asc(), EggCollection.id.asc())
+    if device:
+        stmt = stmt.where(EggCollection.device_id == device.id)
+    if start:
+        stmt = stmt.where(EggCollection.collected_at >= ensure_aware(start))
+    if end:
+        stmt = stmt.where(EggCollection.collected_at < ensure_aware(end))
+    collections = list(db.execute(stmt).scalars().all())
+    for collection in collections:
+        _ = collection.device
+    return collections
 
 
 def reconcile_detections_for_count_drop(
@@ -540,6 +572,10 @@ def list_collections_for_day(db: Session, device: Device, target_date: date) -> 
     return collections
 
 
+def total_collected_eggs(collections: list[EggCollection]) -> int:
+    return sum(max(int(collection.collected_count), 0) for collection in collections)
+
+
 def build_collection_entry(collection: EggCollection) -> CollectionEntryRead:
     local_dt = localize(collection.collected_at)
     device = collection.device.device_id if collection.device else ""
@@ -564,6 +600,7 @@ def create_collection(
     after_count: int,
     source: str,
     collected_at: datetime,
+    size_breakdown: dict[str, int] | None = None,
     user: User | None = None,
 ) -> EggCollection:
     collection = EggCollection(
@@ -573,12 +610,82 @@ def create_collection(
         before_count=before_count,
         after_count=after_count,
         source=source,
+        size_breakdown=normalize_collection_size_breakdown(collected_count, size_breakdown),
         collected_at=ensure_aware(collected_at),
     )
     db.add(collection)
     db.flush()
     _ = collection.device
     return collection
+
+
+def build_collection_history_records(collection: EggCollection) -> list[HistoryRecord]:
+    local_dt = localize(collection.collected_at)
+    display = local_dt.strftime("%b %d, %Y, %I:%M %p")
+    device = collection.device.device_id if collection.device else ""
+    size_breakdown = normalize_collection_size_breakdown(collection.collected_count, collection.size_breakdown) or {}
+    size_order = list(dict.fromkeys([*SIZE_ORDER, *size_breakdown.keys()]))
+    records: list[HistoryRecord] = []
+    offset = 1
+
+    for size in size_order:
+        count = max(int(size_breakdown.get(size, 0)), 0)
+        if count <= 0:
+            continue
+        display_size = size_display(size)
+        for _ in range(count):
+            records.append(
+                HistoryRecord(
+                    id=collection.id * 100000 + offset,
+                    date=local_dt.strftime("%a, %b %d, %Y"),
+                    size=size,
+                    size_display=display_size,
+                    detected_at=display,
+                    confidence=None,
+                    timestamp=local_dt.isoformat(),
+                    device_id=device,
+                    estimated_size=display_size,
+                    count=1,
+                    image_url=None,
+                )
+            )
+            offset += 1
+
+    return records
+
+
+def aggregate_collection_counts_by_day(collections: list[EggCollection]) -> dict[date, int]:
+    counts: dict[date, int] = defaultdict(int)
+    for collection in collections:
+        counts[localize(collection.collected_at).date()] += max(int(collection.collected_count), 0)
+    return dict(counts)
+
+
+def aggregate_collection_sizes(collections: list[EggCollection], include_unknown: bool = False) -> dict[str, int]:
+    counts: dict[str, int] = {size: 0 for size in SIZE_ORDER if include_unknown or size != "unknown"}
+    for collection in collections:
+        size_breakdown = normalize_collection_size_breakdown(collection.collected_count, collection.size_breakdown) or {}
+        for size, count in size_breakdown.items():
+            if size == "unknown" and not include_unknown:
+                continue
+            counts[size] = counts.get(size, 0) + max(int(count), 0)
+    return counts
+
+
+def best_day_from_collections(collections: list[EggCollection]) -> tuple[date | None, int]:
+    by_day = aggregate_collection_counts_by_day(collections)
+    if not by_day:
+        return None, 0
+    best_date, count = max(by_day.items(), key=lambda item: (item[1], item[0]))
+    return best_date, count
+
+
+def top_size_from_collections(collections: list[EggCollection]) -> tuple[str | None, int]:
+    counts = aggregate_collection_sizes(collections, include_unknown=False)
+    populated = [(size, count) for size, count in counts.items() if count > 0]
+    if not populated:
+        return None, 0
+    return max(populated, key=lambda item: (item[1], -SIZE_ORDER.index(item[0])))
 
 
 def aggregate_counts_by_day(detections: list[EggDetection]) -> dict[date, int]:
@@ -644,6 +751,20 @@ def week_of_month_bounds(year: int, month: int, week: int) -> tuple[datetime, da
 
 def daily_chart_points(detections: list[EggDetection], start_date: date, end_date: date) -> list[dict[str, int | str]]:
     counts = aggregate_counts_by_day(detections)
+    points: list[dict[str, int | str]] = []
+    current = start_date
+    while current <= end_date:
+        points.append({"date": current.isoformat(), "count": counts.get(current, 0)})
+        current += timedelta(days=1)
+    return points
+
+
+def daily_chart_points_from_collections(
+    collections: list[EggCollection],
+    start_date: date,
+    end_date: date,
+) -> list[dict[str, int | str]]:
+    counts = aggregate_collection_counts_by_day(collections)
     points: list[dict[str, int | str]] = []
     current = start_date
     while current <= end_date:

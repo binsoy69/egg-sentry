@@ -50,7 +50,7 @@ const RecordTable = ({ records, loading }) => {
                 Size
               </th>
               <th scope="col" className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Date &amp; Time
+                Collected At
               </th>
             </tr>
           </thead>

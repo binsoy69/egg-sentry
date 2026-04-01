@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.schemas import HistoryResponse
-from app.services import app_tz, build_history_record, get_device_by_identifier, query_detections
+from app.services import (
+    app_tz,
+    build_collection_history_records,
+    get_device_by_identifier,
+    query_collections,
+)
 
 
 router = APIRouter(prefix="/history", tags=["history"])
@@ -37,18 +42,18 @@ def get_history(
     )
     device = get_device_by_identifier(db, device_id) if device_id else None
     filter_size = size_class or (None if size == "all" else size)
-    detections = query_detections(db, device=device, start=start, end=end)
+    collections = query_collections(db, device=device, start=start, end=end)
+    records = []
+    for collection in reversed(collections):
+        records.extend(build_collection_history_records(collection))
     if filter_size:
-        detections = [item for item in detections if item.size == filter_size]
-    detections = sorted(detections, key=lambda item: item.detected_at, reverse=True)
-    total_records = len(detections)
+        records = [item for item in records if item.size == filter_size]
+    total_records = len(records)
     start_idx = (page - 1) * limit
-    page_items = detections[start_idx : start_idx + limit]
-    for item in page_items:
-        _ = item.device
+    page_items = records[start_idx : start_idx + limit]
     return HistoryResponse(
         total_records=total_records,
         page=page,
         limit=limit,
-        records=[build_history_record(item) for item in page_items],
+        records=page_items,
     )

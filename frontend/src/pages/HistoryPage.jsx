@@ -12,7 +12,7 @@ const HistoryPage = () => {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-dark-slate sm:text-3xl">History</h1>
-          <p className="text-sm text-gray-500">Browse all egg records with filters</p>
+          <p className="text-sm text-gray-500">Browse collected egg records with filters</p>
         </div>
       </div>
 
