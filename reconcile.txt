@@ -1,0 +1,3 @@
+railway link
+railway ssh -s egg-sentry
+/opt/venv/bin/python reconcile_live_day.py --device-id cam-001 --apply

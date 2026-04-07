@@ -23,6 +23,7 @@ SINGLETON_REDISTRIBUTION_ORDER = {
     "jumbo": ["extra-large", "large", "medium", "small", "jumbo"],
     "unknown": ["medium", "large", "extra-large", "small", "jumbo", "unknown"],
 }
+BREAKDOWN_REDISTRIBUTION_SIZES = {"small", "jumbo", "unknown"}
 
 
 def app_tz() -> ZoneInfo:
@@ -123,6 +124,16 @@ def _correct_singleton_bias(
     return egg.model_copy(update={"size": redistributed_size})
 
 
+def _event_egg_sort_key(item: tuple[int, EventEggCreate]) -> tuple[bool, float, datetime, int]:
+    index, egg = item
+    return (
+        egg.bbox_area_normalized is None,
+        float(egg.bbox_area_normalized or 0.0),
+        ensure_aware(egg.detected_at),
+        index,
+    )
+
+
 def correct_event_egg_sizes(
     new_eggs: list[EventEggCreate],
     previous_size_breakdown: dict[str, int] | None = None,
@@ -135,31 +146,18 @@ def correct_event_egg_sizes(
         return list(new_eggs)
 
     corrected = list(new_eggs)
-    sortable = [
-        (index, egg)
-        for index, egg in enumerate(new_eggs)
-        if (egg.size in CORRECTABLE_SIZE_INDEX or egg.size == "unknown")
-        and egg.bbox_area_normalized is not None
-    ]
-    if len(sortable) < 2:
-        return corrected
+    grouped_runs: dict[str, list[tuple[int, EventEggCreate]]] = {}
+    ordered_sizes: list[str] = []
+    for index, egg in enumerate(new_eggs):
+        if egg.size not in CORRECTABLE_SIZE_INDEX and egg.size != "unknown":
+            continue
+        if egg.size not in grouped_runs:
+            grouped_runs[egg.size] = []
+            ordered_sizes.append(egg.size)
+        grouped_runs[egg.size].append((index, egg))
 
-    sortable.sort(
-        key=lambda item: (
-            float(item[1].bbox_area_normalized or 0.0),
-            ensure_aware(item[1].detected_at),
-            item[0],
-        )
-    )
-
-    cursor = 0
-    while cursor < len(sortable):
-        run_end = cursor + 1
-        raw_size = sortable[cursor][1].size
-        while run_end < len(sortable) and sortable[run_end][1].size == raw_size:
-            run_end += 1
-
-        run = sortable[cursor:run_end]
+    for raw_size in ordered_sizes:
+        run = sorted(grouped_runs[raw_size], key=_event_egg_sort_key)
         if _should_redistribute_run(raw_size, run):
             assigned_indices = _size_correction_indices(raw_size, len(run))
             for assigned_index, (original_index, egg) in zip(assigned_indices, run):
@@ -167,9 +165,53 @@ def correct_event_egg_sizes(
                     update={"size": CORRECTABLE_SIZE_ORDER[assigned_index]}
                 )
 
-        cursor = run_end
-
     return corrected
+
+
+def _should_redistribute_size_breakdown(size_breakdown: dict[str, int] | None) -> bool:
+    if not size_breakdown:
+        return False
+
+    normalized = {size: max(int(count), 0) for size, count in size_breakdown.items() if int(count) > 0}
+    if sum(normalized.values()) < 2:
+        return False
+
+    if normalized.get("unknown", 0) >= 2:
+        return True
+    if normalized.get("small", 0) >= 2:
+        other_real_sizes = [size for size in normalized if size not in {"small", "unknown"}]
+        if len(other_real_sizes) <= 1:
+            return True
+    if normalized.get("jumbo", 0) >= 2:
+        other_real_sizes = [size for size in normalized if size not in {"jumbo", "unknown"}]
+        if len(other_real_sizes) <= 1:
+            return True
+    return False
+
+
+def correct_size_breakdown_bias(size_breakdown: dict[str, int] | None) -> dict[str, int] | None:
+    if not size_breakdown:
+        return None
+
+    normalized = {size: max(int(count), 0) for size, count in size_breakdown.items() if int(count) > 0}
+    if not normalized:
+        return None
+    if not _should_redistribute_size_breakdown(normalized):
+        return normalized
+
+    corrected: Counter[str] = Counter()
+    size_order = list(dict.fromkeys([*SIZE_ORDER, *normalized.keys()]))
+    for size in size_order:
+        count = normalized.get(size, 0)
+        if count <= 0:
+            continue
+        if size in BREAKDOWN_REDISTRIBUTION_SIZES:
+            for assigned_index in _size_correction_indices(size, count):
+                corrected[CORRECTABLE_SIZE_ORDER[assigned_index]] += 1
+            continue
+        corrected[size] += count
+
+    return {size: count for size, count in corrected.items() if count > 0} or None
 
 
 def aggregate_event_egg_sizes(new_eggs: list[EventEggCreate]) -> dict[str, int]:
@@ -240,30 +282,31 @@ def derive_snapshot_size_breakdown(
 ) -> dict[str, int] | None:
     previous_total = previous_snapshot.total_count if previous_snapshot else 0
     normalized_reported = normalize_size_breakdown(total_count, reported_size_breakdown)
+    corrected_reported = correct_size_breakdown_bias(normalized_reported)
     if total_count < previous_total:
-        return normalized_reported
+        return corrected_reported
 
     expected_increase = max(0, total_count - previous_total)
     if previous_snapshot is None:
         if expected_increase != total_count:
-            return normalized_reported
+            return corrected_reported
         snapshot_counts = aggregate_event_egg_sizes(new_eggs[:expected_increase])
-        return snapshot_counts or normalized_reported
+        return snapshot_counts or corrected_reported
 
     previous_sizes = previous_snapshot.size_breakdown or {}
     if previous_total > 0 and not previous_sizes:
-        return normalized_reported
+        return corrected_reported
 
     current_sizes = Counter({size: int(count) for size, count in previous_sizes.items() if int(count) > 0})
     if current_sizes and sum(current_sizes.values()) != previous_total:
-        return normalized_reported
+        return corrected_reported
 
     if expected_increase == 0:
-        return dict(current_sizes) or normalized_reported
+        return dict(current_sizes) or corrected_reported
 
     current_sizes.update(aggregate_event_egg_sizes(new_eggs[:expected_increase]))
     if sum(current_sizes.values()) != total_count:
-        return normalized_reported
+        return corrected_reported
     return dict(current_sizes)
 
 
@@ -435,8 +478,11 @@ def reconcile_detections_for_count_drop(
     if drop_count <= 0:
         return 0
 
-    current_sizes = normalize_size_breakdown(total_count, size_breakdown) or {}
-    previous_sizes = normalize_size_breakdown(previous_total, previous_snapshot.size_breakdown) or {}
+    current_sizes = correct_size_breakdown_bias(normalize_size_breakdown(total_count, size_breakdown)) or {}
+    previous_sizes = (
+        correct_size_breakdown_bias(normalize_size_breakdown(previous_total, previous_snapshot.size_breakdown))
+        or {}
+    )
 
     stmt = (
         select(EggDetection)
@@ -627,6 +673,7 @@ def create_collection(
     size_breakdown: dict[str, int] | None = None,
     user: User | None = None,
 ) -> EggCollection:
+    normalized_size_breakdown = normalize_collection_size_breakdown(collected_count, size_breakdown)
     collection = EggCollection(
         device_id=device.id,
         user_id=user.id if user else None,
@@ -634,7 +681,7 @@ def create_collection(
         before_count=before_count,
         after_count=after_count,
         source=source,
-        size_breakdown=normalize_collection_size_breakdown(collected_count, size_breakdown),
+        size_breakdown=correct_size_breakdown_bias(normalized_size_breakdown),
         collected_at=ensure_aware(collected_at),
     )
     db.add(collection)
@@ -669,8 +716,12 @@ def resolve_collection_size_breakdowns(
 
         for collection in sorted(day_collections, key=lambda item: (ensure_aware(item.collected_at), item.id)):
             count = max(int(collection.collected_count), 0)
-            derived = _collection_breakdown_from_detections(day_detections[cursor : cursor + count], count)
-            stored = normalize_collection_size_breakdown(count, collection.size_breakdown)
+            derived = correct_size_breakdown_bias(
+                _collection_breakdown_from_detections(day_detections[cursor : cursor + count], count)
+            )
+            stored = correct_size_breakdown_bias(
+                normalize_collection_size_breakdown(count, collection.size_breakdown)
+            )
             cursor += count
 
             if stored and not _is_unknown_only_breakdown(stored):
@@ -734,7 +785,9 @@ def aggregate_collection_counts_by_day(collections: list[EggCollection]) -> dict
 
 def aggregate_collection_sizes(collections: list[EggCollection], include_unknown: bool = False) -> dict[str, int]:
     resolved_breakdowns = {
-        collection.id: normalize_collection_size_breakdown(collection.collected_count, collection.size_breakdown)
+        collection.id: correct_size_breakdown_bias(
+            normalize_collection_size_breakdown(collection.collected_count, collection.size_breakdown)
+        )
         or _unknown_collection_size_breakdown(collection.collected_count)
         for collection in collections
     }
