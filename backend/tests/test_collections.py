@@ -1,7 +1,7 @@
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from app.models import CountSnapshot, Device, EggDetection
+from app.models import CountSnapshot, Device, EggCollection, EggDetection
 from app.services import count_for_day, create_collection, current_local_date, local_day_bounds
 from tests.helpers import create_event_payload
 
@@ -118,6 +118,196 @@ def test_manual_collection_reconciles_excess_today_detections(
     assert summary["total_today"] == 11
     assert history["total_records"] == 11
     assert count_for_day(db_session, device, today) == 11
+
+
+def test_update_today_collection_entry_recalculates_totals_and_history(
+    client,
+    auth_headers: dict,
+    db_session,
+):
+    device = db_session.query(Device).filter(Device.device_id == "cam-001").one()
+    today = current_local_date()
+    start, _ = local_day_bounds(today)
+    detection_time = start + timedelta(hours=9)
+
+    db_session.add_all(
+        [
+            EggDetection(
+                device_id=device.id,
+                size="large",
+                confidence=0.91,
+                bbox_area_normalized=0.0031,
+                detected_at=detection_time + timedelta(seconds=index),
+            )
+            for index in range(4)
+        ]
+    )
+    collection = create_collection(
+        db_session,
+        device=device,
+        collected_count=4,
+        before_count=4,
+        after_count=0,
+        source="manual",
+        collected_at=detection_time + timedelta(minutes=30),
+        size_breakdown={"large": 4},
+    )
+    db_session.commit()
+
+    update_response = client.patch(
+        f"/api/collections/{collection.id}",
+        json={"count": 3},
+        headers=auth_headers,
+    )
+    summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+    history_response = client.get("/api/history", headers=auth_headers)
+
+    assert update_response.status_code == 200
+    assert summary_response.status_code == 200
+    assert history_response.status_code == 200
+
+    update_body = update_response.json()
+    summary = summary_response.json()
+    history = history_response.json()
+
+    assert update_body["affected_count"] == 1
+    assert update_body["entry"]["count"] == 3
+    assert update_body["collected_today"] == 3
+    assert summary["collected_today"] == 3
+    assert summary["total_today"] == 3
+    assert history["total_records"] == 3
+    assert count_for_day(db_session, device, today) == 3
+
+
+def test_delete_today_collection_entry_recalculates_totals(
+    client,
+    auth_headers: dict,
+    db_session,
+):
+    device = db_session.query(Device).filter(Device.device_id == "cam-001").one()
+    today = current_local_date()
+    start, _ = local_day_bounds(today)
+    collection_time = start + timedelta(hours=9)
+    first = create_collection(
+        db_session,
+        device=device,
+        collected_count=2,
+        before_count=2,
+        after_count=0,
+        source="manual",
+        collected_at=collection_time,
+        size_breakdown={"medium": 2},
+    )
+    create_collection(
+        db_session,
+        device=device,
+        collected_count=3,
+        before_count=3,
+        after_count=0,
+        source="manual",
+        collected_at=collection_time + timedelta(minutes=30),
+        size_breakdown={"large": 3},
+    )
+    db_session.commit()
+
+    delete_response = client.delete(f"/api/collections/{first.id}", headers=auth_headers)
+    summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+
+    assert delete_response.status_code == 200
+    assert summary_response.status_code == 200
+
+    summary = summary_response.json()
+    assert delete_response.json()["affected_count"] == 1
+    assert summary["collected_today"] == 3
+    assert summary["total_today"] == 3
+    assert len(summary["collection_history"]) == 1
+    assert summary["collection_history"][0]["count"] == 3
+
+
+def test_clear_today_collections_keeps_non_today_entries(
+    client,
+    auth_headers: dict,
+    db_session,
+):
+    device = db_session.query(Device).filter(Device.device_id == "cam-001").one()
+    today = current_local_date()
+    start, _ = local_day_bounds(today)
+    yesterday_start, _ = local_day_bounds(today - timedelta(days=1))
+    create_collection(
+        db_session,
+        device=device,
+        collected_count=2,
+        before_count=2,
+        after_count=0,
+        source="manual",
+        collected_at=start + timedelta(hours=9),
+        size_breakdown={"medium": 2},
+    )
+    create_collection(
+        db_session,
+        device=device,
+        collected_count=3,
+        before_count=3,
+        after_count=0,
+        source="manual",
+        collected_at=start + timedelta(hours=10),
+        size_breakdown={"large": 3},
+    )
+    create_collection(
+        db_session,
+        device=device,
+        collected_count=1,
+        before_count=1,
+        after_count=0,
+        source="manual",
+        collected_at=yesterday_start + timedelta(hours=9),
+        size_breakdown={"small": 1},
+    )
+    db_session.commit()
+
+    clear_response = client.delete("/api/collections/today?device_id=cam-001", headers=auth_headers)
+    summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+
+    assert clear_response.status_code == 200
+    assert clear_response.json()["affected_count"] == 2
+    assert summary_response.status_code == 200
+    assert summary_response.json()["collected_today"] == 0
+    assert summary_response.json()["collection_history"] == []
+
+    db_session.expire_all()
+    remaining = db_session.query(EggCollection).all()
+    assert len(remaining) == 1
+    assert remaining[0].collected_count == 1
+
+
+def test_non_today_collection_entry_cannot_be_edited_or_deleted(
+    client,
+    auth_headers: dict,
+    db_session,
+):
+    device = db_session.query(Device).filter(Device.device_id == "cam-001").one()
+    yesterday_start, _ = local_day_bounds(current_local_date() - timedelta(days=1))
+    collection = create_collection(
+        db_session,
+        device=device,
+        collected_count=2,
+        before_count=2,
+        after_count=0,
+        source="manual",
+        collected_at=yesterday_start + timedelta(hours=9),
+        size_breakdown={"medium": 2},
+    )
+    db_session.commit()
+
+    update_response = client.patch(
+        f"/api/collections/{collection.id}",
+        json={"count": 1},
+        headers=auth_headers,
+    )
+    delete_response = client.delete(f"/api/collections/{collection.id}", headers=auth_headers)
+
+    assert update_response.status_code == 404
+    assert delete_response.status_code == 404
 
 
 def test_legacy_collection_history_recovers_sizes_from_day_detections(

@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import AlertPanel from '../components/dashboard/AlertPanel';
 import CameraCard from '../components/dashboard/CameraCard';
+import CollectionActionModal from '../components/dashboard/CollectionActionModal';
 import CollectionHistoryPanel from '../components/dashboard/CollectionHistoryPanel';
 import CollectEggsModal from '../components/dashboard/CollectEggsModal';
 import DailyChart from '../components/dashboard/DailyChart';
@@ -64,8 +65,11 @@ const DashboardPage = () => {
   const [year, setYear] = useState(currentYear);
   const [collectModalOpen, setCollectModalOpen] = useState(false);
   const [collectionError, setCollectionError] = useState('');
+  const [collectionActionError, setCollectionActionError] = useState('');
   const [collectionMessage, setCollectionMessage] = useState('');
   const [collecting, setCollecting] = useState(false);
+  const [collectionAction, setCollectionAction] = useState(null);
+  const [confirmCollectionAction, setConfirmCollectionAction] = useState(null);
   const yearOptions = useMemo(() => buildYearOptions(currentYear), [currentYear]);
   const weekOptions = useMemo(
     () => buildWeekOptions(weekParams.year, weekParams.month),
@@ -158,6 +162,23 @@ const DashboardPage = () => {
     : 'No data';
   const collectionHistory = summary?.collection_history ?? [];
   const errorMessage = dashboardError || devicesError;
+  const confirmationTitle =
+    confirmCollectionAction?.type === 'clear'
+      ? "Clear today's collections?"
+      : 'Delete collection entry?';
+  const confirmationDescription =
+    confirmCollectionAction?.type === 'clear'
+      ? "This removes every collection entry logged today. The current live camera count stays unchanged."
+      : `This removes the ${confirmCollectionAction?.entry?.count ?? ''} egg collection entry from today's log.`;
+  const confirmationLabel = confirmCollectionAction?.type === 'clear' ? 'Clear today' : 'Delete entry';
+  const destructiveActionLoading =
+    collectionAction?.type === 'clear' || collectionAction?.type === 'delete';
+
+  const refreshCollectionData = async () => {
+    await Promise.all([refetchDashboard(), refetchDevices()]);
+  };
+
+  const collectionMutationError = (err, fallback) => err.response?.data?.detail || err.message || fallback;
 
   const handleCollectEggs = async () => {
     if (!primaryDevice) {
@@ -166,16 +187,80 @@ const DashboardPage = () => {
 
     setCollecting(true);
     setCollectionError('');
+    setCollectionActionError('');
     setCollectionMessage('');
     try {
       const response = await collectionsService.collectEggs(primaryDevice.device_id);
-      await Promise.all([refetchDashboard(), refetchDevices()]);
+      await refreshCollectionData();
       setCollectionMessage(`Logged a collection entry for ${response.entry.count} eggs.`);
       setCollectModalOpen(false);
     } catch (err) {
       setCollectionError(err.response?.data?.detail || err.message || 'Failed to collect eggs.');
     } finally {
       setCollecting(false);
+    }
+  };
+
+  const handleUpdateCollection = async (collectionId, count) => {
+    setCollectionAction({ type: 'update', id: collectionId });
+    setCollectionActionError('');
+    setCollectionMessage('');
+    try {
+      const response = await collectionsService.updateCollection(collectionId, count);
+      await refreshCollectionData();
+      setCollectionMessage(`Updated collection entry to ${response.entry.count} eggs.`);
+      return true;
+    } catch (err) {
+      setCollectionActionError(collectionMutationError(err, 'Failed to update collection entry.'));
+      return false;
+    } finally {
+      setCollectionAction(null);
+    }
+  };
+
+  const handleDeleteCollection = async (entry) => {
+    setCollectionAction({ type: 'delete', id: entry.id });
+    setCollectionActionError('');
+    setCollectionMessage('');
+    try {
+      await collectionsService.deleteCollection(entry.id);
+      await refreshCollectionData();
+      setCollectionMessage('Deleted collection entry.');
+      setConfirmCollectionAction(null);
+    } catch (err) {
+      setCollectionActionError(collectionMutationError(err, 'Failed to delete collection entry.'));
+    } finally {
+      setCollectionAction(null);
+    }
+  };
+
+  const handleClearTodayCollections = async () => {
+    if (!primaryDevice) {
+      return;
+    }
+
+    setCollectionAction({ type: 'clear' });
+    setCollectionActionError('');
+    setCollectionMessage('');
+    try {
+      const response = await collectionsService.clearToday(primaryDevice.device_id);
+      await refreshCollectionData();
+      setCollectionMessage(`Cleared ${response.affected_count} collection entries from today.`);
+      setConfirmCollectionAction(null);
+    } catch (err) {
+      setCollectionActionError(collectionMutationError(err, "Failed to clear today's collection entries."));
+    } finally {
+      setCollectionAction(null);
+    }
+  };
+
+  const handleConfirmCollectionAction = async () => {
+    if (confirmCollectionAction?.type === 'delete' && confirmCollectionAction.entry) {
+      await handleDeleteCollection(confirmCollectionAction.entry);
+      return;
+    }
+    if (confirmCollectionAction?.type === 'clear') {
+      await handleClearTodayCollections();
     }
   };
 
@@ -191,6 +276,7 @@ const DashboardPage = () => {
           type="button"
           onClick={() => {
             setCollectionError('');
+            setCollectionActionError('');
             setCollectModalOpen(true);
           }}
           disabled={!primaryDevice || currentEggs <= 0 || dashLoading || devicesLoading}
@@ -210,6 +296,12 @@ const DashboardPage = () => {
       {collectionMessage ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {collectionMessage}
+        </div>
+      ) : null}
+
+      {collectionActionError && !confirmCollectionAction ? (
+        <div className="rounded-xl border border-alert-red/20 bg-alert-red/10 px-4 py-3 text-sm text-alert-red">
+          {collectionActionError}
         </div>
       ) : null}
 
@@ -306,7 +398,19 @@ const DashboardPage = () => {
         <MetricCard title="Top Size" value={topSizeLabel} icon={BarChart3} color="yolk-yellow" />
       </div>
 
-      <CollectionHistoryPanel entries={collectionHistory} />
+      <CollectionHistoryPanel
+        entries={collectionHistory}
+        onUpdateEntry={handleUpdateCollection}
+        onDeleteEntry={(entry) => {
+          setCollectionActionError('');
+          setConfirmCollectionAction({ type: 'delete', entry });
+        }}
+        onClearToday={() => {
+          setCollectionActionError('');
+          setConfirmCollectionAction({ type: 'clear' });
+        }}
+        actionLoading={collectionAction}
+      />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="xl:col-span-2 rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
@@ -347,6 +451,22 @@ const DashboardPage = () => {
         onConfirm={handleCollectEggs}
         loading={collecting}
         error={collectionError}
+      />
+
+      <CollectionActionModal
+        isOpen={Boolean(confirmCollectionAction)}
+        title={confirmationTitle}
+        description={confirmationDescription}
+        confirmLabel={confirmationLabel}
+        onCancel={() => {
+          if (!destructiveActionLoading) {
+            setCollectionActionError('');
+            setConfirmCollectionAction(null);
+          }
+        }}
+        onConfirm={handleConfirmCollectionAction}
+        loading={destructiveActionLoading}
+        error={collectionActionError}
       />
     </div>
   );

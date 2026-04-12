@@ -9,8 +9,10 @@ from app.models import CountSnapshot, Device, EggDetection
 from app.schemas import EventIngestRequest, EventIngestResponse
 from app.services import (
     build_history_record,
+    collected_count_for_day,
     correct_event_egg_sizes,
     count_for_day,
+    create_collection,
     current_local_date,
     derive_snapshot_size_breakdown,
     ensure_event_egg_records,
@@ -18,7 +20,9 @@ from app.services import (
     evaluate_alerts,
     get_device_by_identifier,
     latest_snapshot_for_device,
+    localize,
     query_detections,
+    reconcile_day_detections_to_target,
     reconcile_detections_for_count_drop,
 )
 
@@ -36,14 +40,18 @@ def ingest_events(
         raise HTTPException(status_code=400, detail="Device ID does not match authenticated device")
 
     previous_snapshot = latest_snapshot_for_device(db, current_device)
-    reconcile_detections_for_count_drop(
-        db,
-        device=current_device,
-        previous_snapshot=previous_snapshot,
-        total_count=payload.total_count,
-        size_breakdown=payload.size_breakdown,
-        detected_before=payload.timestamp,
+    is_automatic_collection = bool(
+        previous_snapshot and previous_snapshot.total_count > 0 and payload.total_count == 0
     )
+    if not is_automatic_collection:
+        reconcile_detections_for_count_drop(
+            db,
+            device=current_device,
+            previous_snapshot=previous_snapshot,
+            total_count=payload.total_count,
+            size_breakdown=payload.size_breakdown,
+            detected_before=payload.timestamp,
+        )
 
     event_eggs = ensure_event_egg_records(
         previous_snapshot=previous_snapshot,
@@ -71,6 +79,18 @@ def ingest_events(
         )
     )
 
+    if is_automatic_collection and previous_snapshot:
+        create_collection(
+            db,
+            device=current_device,
+            collected_count=previous_snapshot.total_count,
+            before_count=previous_snapshot.total_count,
+            after_count=0,
+            source="automatic",
+            collected_at=payload.timestamp,
+            size_breakdown=previous_snapshot.size_breakdown,
+        )
+
     events_created = 0
     for egg in corrected_event_eggs:
         db.add(
@@ -87,6 +107,16 @@ def ingest_events(
     current_device.last_heartbeat = payload.timestamp
     db.add(current_device)
     db.flush()
+    if is_automatic_collection:
+        collection_date = localize(payload.timestamp).date()
+        collected_today = collected_count_for_day(db, current_device, collection_date)
+        reconcile_day_detections_to_target(
+            db,
+            device=current_device,
+            target_date=collection_date,
+            target_total=collected_today,
+            dry_run=False,
+        )
     evaluate_alerts(db, current_device)
     db.commit()
     return EventIngestResponse(

@@ -133,6 +133,10 @@ class CollectionCreateRequest(BaseModel):
     device_id: str | None = None
 
 
+class CollectionUpdateRequest(BaseModel):
+    count: int = Field(ge=1)
+
+
 class CollectionEntryRead(BaseModel):
     id: int
     device_id: str
@@ -146,6 +150,16 @@ class CollectionEntryRead(BaseModel):
 
 class CollectionCreateResponse(BaseModel):
     entry: CollectionEntryRead
+    current_eggs: int
+    collected_today: int
+    total_today: int
+
+
+class CollectionMutationResponse(BaseModel):
+    success: bool = True
+    message: str
+    affected_count: int
+    entry: CollectionEntryRead | None = None
     current_eggs: int
     collected_today: int
     total_today: int

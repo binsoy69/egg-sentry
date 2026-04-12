@@ -51,6 +51,41 @@ def test_event_ingestion_updates_live_count_without_recording_collection_history
     assert body["records"] == []
 
 
+def test_zero_count_drop_creates_one_automatic_collection(
+    client: TestClient,
+    auth_headers: dict,
+    device_headers: dict,
+):
+    timestamp = datetime.now(timezone.utc)
+    client.post(
+        "/api/events",
+        json=create_event_payload(timestamp=timestamp, sizes=["medium"] * 5, total_count=5),
+        headers=device_headers,
+    )
+
+    zero_payload = create_event_payload(timestamp=timestamp + timedelta(minutes=5), sizes=[], total_count=0)
+    first_drop_response = client.post("/api/events", json=zero_payload, headers=device_headers)
+    second_drop_payload = create_event_payload(timestamp=timestamp + timedelta(minutes=10), sizes=[], total_count=0)
+    second_drop_response = client.post("/api/events", json=second_drop_payload, headers=device_headers)
+    summary_response = client.get("/api/dashboard/summary", headers=auth_headers)
+    history_response = client.get("/api/history", headers=auth_headers)
+
+    assert first_drop_response.status_code == 201
+    assert second_drop_response.status_code == 201
+    assert summary_response.status_code == 200
+    assert history_response.status_code == 200
+
+    summary = summary_response.json()
+    history = history_response.json()
+    assert summary["current_eggs"] == 0
+    assert summary["collected_today"] == 5
+    assert summary["total_today"] == 5
+    assert len(summary["collection_history"]) == 1
+    assert summary["collection_history"][0]["source"] == "automatic"
+    assert summary["collection_history"][0]["count"] == 5
+    assert history["total_records"] == 5
+
+
 def test_event_ingestion_corrects_repeated_sizes_for_ui_and_snapshot(
     client: TestClient,
     auth_headers: dict,
