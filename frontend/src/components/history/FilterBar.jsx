@@ -39,7 +39,7 @@ const FilterBar = ({ params, totalRecords, onUpdate, onExport, exporting }) => {
           <span className="text-sm font-semibold">Filters</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center rounded-full bg-amber-50 px-4 py-1.5 text-sm font-bold text-dark-slate">
+          <span className="inline-flex items-center rounded-full bg-amber-50 px-4 py-1.5 text-sm font-bold text-alert-red">
             {totalRecords} records
           </span>
           <button
