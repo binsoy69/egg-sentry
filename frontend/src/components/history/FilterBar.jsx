@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, CalendarDays, Funnel } from 'lucide-react';
+import { Calendar, CalendarDays, Download, Funnel } from 'lucide-react';
 
 const SIZE_OPTIONS = [
   { value: 'all', label: 'All Sizes' },
@@ -18,7 +18,7 @@ const formatDateInputValue = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-const FilterBar = ({ params, totalRecords, onUpdate }) => {
+const FilterBar = ({ params, totalRecords, onUpdate, onExport, exporting }) => {
   const today = formatDateInputValue(new Date());
   const isTodayFilterActive = params.start_date === today && params.end_date === today;
 
@@ -38,9 +38,24 @@ const FilterBar = ({ params, totalRecords, onUpdate }) => {
           <Funnel className="h-4 w-4 text-yolk-yellow" />
           <span className="text-sm font-semibold">Filters</span>
         </div>
-        <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-yolk-yellow">
-          {totalRecords} records
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center rounded-full bg-amber-50 px-4 py-1.5 text-sm font-bold text-dark-slate">
+            {totalRecords} records
+          </span>
+          <button
+            type="button"
+            onClick={onExport}
+            disabled={exporting}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-dark-slate shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {exporting ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-dark-slate border-t-transparent"></div>
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {exporting ? 'Exporting...' : 'Export'}
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">

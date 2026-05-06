@@ -1,11 +1,63 @@
-import React from 'react';
+import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
 
 import FilterBar from '../components/history/FilterBar';
 import RecordTable from '../components/history/RecordTable';
 import { useHistory } from '../hooks/useHistory';
+import { historyService } from '../services/history';
+
+const EXPORT_HEADERS = ['Record ID', 'Date', 'Size', 'Collected At', 'Device ID', 'Timestamp'];
+
+const buildExportFilename = ({ start_date: startDate, end_date: endDate }) => {
+  if (startDate && endDate) {
+    return `egg-history-${startDate}-to-${endDate}.xlsx`;
+  }
+  if (startDate) {
+    return `egg-history-${startDate}-to-latest.xlsx`;
+  }
+  if (endDate) {
+    return `egg-history-through-${endDate}.xlsx`;
+  }
+  return 'egg-history.xlsx';
+};
+
+const buildExportRows = (records) => (
+  records.map((record) => [
+    record.id,
+    record.date,
+    record.size_display || record.size,
+    record.detected_at,
+    record.device_id,
+    record.timestamp,
+  ])
+);
 
 const HistoryPage = () => {
   const { records, totalRecords, hasMore, loading, error, params, updateParams, loadMore } = useHistory();
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
+
+  const handleExport = async () => {
+    setExporting(true);
+    setExportError(null);
+
+    try {
+      const data = await historyService.getAllRecords(params);
+      const worksheet = XLSX.utils.aoa_to_sheet([
+        EXPORT_HEADERS,
+        ...buildExportRows(data.records),
+      ]);
+      const workbook = XLSX.utils.book_new();
+
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'History');
+      XLSX.writeFile(workbook, buildExportFilename(params));
+    } catch (err) {
+      setExportError(err.message || 'Failed to export records');
+      console.error(err);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -16,11 +68,23 @@ const HistoryPage = () => {
         </div>
       </div>
 
-      <FilterBar params={params} totalRecords={totalRecords} onUpdate={updateParams} />
+      <FilterBar
+        params={params}
+        totalRecords={totalRecords}
+        onUpdate={updateParams}
+        onExport={handleExport}
+        exporting={exporting}
+      />
 
       {error ? (
         <div className="rounded-xl border border-alert-red/20 bg-alert-red/10 px-4 py-3 text-sm text-alert-red">
           {error}
+        </div>
+      ) : null}
+
+      {exportError ? (
+        <div className="rounded-xl border border-alert-red/20 bg-alert-red/10 px-4 py-3 text-sm text-alert-red">
+          {exportError}
         </div>
       ) : null}
 
