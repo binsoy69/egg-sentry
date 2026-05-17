@@ -11,6 +11,20 @@ def test_login_and_me(client: TestClient):
 
     assert me_response.status_code == 200
     assert me_response.json()["username"] == "admin"
+    assert me_response.json()["role"] == "admin"
+
+
+def test_editor_login_and_me_returns_history_editor_role(client: TestClient):
+    login_response = client.post("/api/auth/login", json={"username": "editor", "password": "editor123"})
+
+    assert login_response.status_code == 200
+    token = login_response.json()["access_token"]
+
+    me_response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert me_response.status_code == 200
+    assert me_response.json()["username"] == "editor"
+    assert me_response.json()["role"] == "history_editor"
 
 
 def test_form_token_login(client: TestClient):

@@ -26,6 +26,22 @@ export const historyService = {
     const response = await api.get('/history', { params: buildHistoryParams(params) });
     return response.data;
   },
+  getCollections: async (params) => {
+    const response = await api.get('/history/collections', { params: buildHistoryParams(params) });
+    return response.data;
+  },
+  createCollection: async (payload) => {
+    const response = await api.post('/history/collections', payload);
+    return response.data;
+  },
+  updateCollection: async (collectionId, payload) => {
+    const response = await api.patch(`/history/collections/${collectionId}`, payload);
+    return response.data;
+  },
+  deleteCollection: async (collectionId) => {
+    const response = await api.delete(`/history/collections/${collectionId}`);
+    return response.data;
+  },
   getAllRecords: async (params = {}) => {
     let page = 1;
     let totalRecords = 0;

@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 
 import FilterBar from '../components/history/FilterBar';
+import HistoryCollectionManager from '../components/history/HistoryCollectionManager';
 import RecordTable from '../components/history/RecordTable';
 import { useHistory } from '../hooks/useHistory';
+import { useAuth } from '../hooks/useAuth';
 import { historyService } from '../services/history';
 
 const EXPORT_HEADERS = ['Record ID', 'Date', 'Size', 'Collected At', 'Device ID', 'Timestamp'];
@@ -33,9 +35,11 @@ const buildExportRows = (records) => (
 );
 
 const HistoryPage = () => {
-  const { records, totalRecords, hasMore, loading, error, params, updateParams, loadMore } = useHistory();
+  const { user } = useAuth();
+  const { records, totalRecords, hasMore, loading, error, params, updateParams, loadMore, refetch } = useHistory();
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
+  const canManageHistory = user?.role === 'history_editor';
 
   const handleExport = async () => {
     setExporting(true);
@@ -75,6 +79,10 @@ const HistoryPage = () => {
         onExport={handleExport}
         exporting={exporting}
       />
+
+      {canManageHistory ? (
+        <HistoryCollectionManager params={params} onChanged={refetch} />
+      ) : null}
 
       {error ? (
         <div className="rounded-xl border border-alert-red/20 bg-alert-red/10 px-4 py-3 text-sm text-alert-red">

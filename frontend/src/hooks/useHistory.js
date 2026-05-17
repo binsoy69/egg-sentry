@@ -7,6 +7,7 @@ export const useHistory = (initialParams = { page: 1, limit: 20, size: 'all', st
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [params, setParams] = useState(initialParams);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const requestParams = useMemo(() => {
     const nextParams = {
@@ -60,7 +61,7 @@ export const useHistory = (initialParams = { page: 1, limit: 20, size: 'all', st
     return () => {
       isMounted = false;
     };
-  }, [params.page, requestParams]);
+  }, [params.page, reloadKey, requestParams]);
 
   const updateParams = (newParams) => {
     setParams((prev) => ({ ...prev, ...newParams, page: 1 }));
@@ -70,7 +71,11 @@ export const useHistory = (initialParams = { page: 1, limit: 20, size: 'all', st
     setParams((prev) => ({ ...prev, page: prev.page + 1 }));
   };
 
+  const refetch = () => {
+    setReloadKey((prev) => prev + 1);
+  };
+
   const hasMore = records.length < totalRecords;
 
-  return { records, totalRecords, hasMore, loading, error, params, updateParams, loadMore };
+  return { records, totalRecords, hasMore, loading, error, params, updateParams, loadMore, refetch };
 };

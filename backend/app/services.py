@@ -672,8 +672,14 @@ def create_collection(
     collected_at: datetime,
     size_breakdown: dict[str, int] | None = None,
     user: User | None = None,
+    correct_size_bias: bool = True,
 ) -> EggCollection:
     normalized_size_breakdown = normalize_collection_size_breakdown(collected_count, size_breakdown)
+    stored_size_breakdown = (
+        correct_size_breakdown_bias(normalized_size_breakdown)
+        if correct_size_bias
+        else normalized_size_breakdown
+    )
     collection = EggCollection(
         device_id=device.id,
         user_id=user.id if user else None,
@@ -681,7 +687,7 @@ def create_collection(
         before_count=before_count,
         after_count=after_count,
         source=source,
-        size_breakdown=correct_size_breakdown_bias(normalized_size_breakdown),
+        size_breakdown=stored_size_breakdown,
         collected_at=ensure_aware(collected_at),
     )
     db.add(collection)
@@ -719,19 +725,14 @@ def resolve_collection_size_breakdowns(
             derived = correct_size_breakdown_bias(
                 _collection_breakdown_from_detections(day_detections[cursor : cursor + count], count)
             )
-            stored = correct_size_breakdown_bias(
-                normalize_collection_size_breakdown(count, collection.size_breakdown)
-            )
+            stored = normalize_collection_size_breakdown(count, collection.size_breakdown)
             cursor += count
 
-            if stored and not _is_unknown_only_breakdown(stored):
+            if stored:
                 resolved[collection.id] = stored
                 continue
             if derived and not _is_unknown_only_breakdown(derived):
                 resolved[collection.id] = derived
-                continue
-            if stored:
-                resolved[collection.id] = stored
                 continue
             resolved[collection.id] = derived or _unknown_collection_size_breakdown(count)
 
@@ -785,9 +786,7 @@ def aggregate_collection_counts_by_day(collections: list[EggCollection]) -> dict
 
 def aggregate_collection_sizes(collections: list[EggCollection], include_unknown: bool = False) -> dict[str, int]:
     resolved_breakdowns = {
-        collection.id: correct_size_breakdown_bias(
-            normalize_collection_size_breakdown(collection.collected_count, collection.size_breakdown)
-        )
+        collection.id: normalize_collection_size_breakdown(collection.collected_count, collection.size_breakdown)
         or _unknown_collection_size_breakdown(collection.collected_count)
         for collection in collections
     }
@@ -1009,14 +1008,14 @@ def resolve_alerts(db: Session, *, device: Device | None, alert_type: str) -> in
     return len(active_alerts)
 
 
-def evaluate_uncertain_detection_alert(db: Session, device: Device) -> None:
+def evaluate_uncertain_detection_alert(db: Session, device: Device, raw_unknown_count: int = 0) -> None:
     cutoff = utc_now() - timedelta(hours=1)
     stmt = select(func.count(EggDetection.id)).where(
         EggDetection.device_id == device.id,
         EggDetection.detected_at >= cutoff,
         EggDetection.size == "unknown",
     )
-    unknown_count = int(db.execute(stmt).scalar_one() or 0)
+    unknown_count = int(db.execute(stmt).scalar_one() or 0) + max(raw_unknown_count, 0)
     if unknown_count > settings.alert_uncertain_threshold:
         create_or_refresh_alert(
             db,
@@ -1026,6 +1025,20 @@ def evaluate_uncertain_detection_alert(db: Session, device: Device) -> None:
             message=f"Multiple uncertain detections from {device.name} in the last hour - check camera alignment",
         )
         return
+
+    active_alert = get_active_alert(db, device_id=device.id, alert_type="uncertain_detection")
+    if active_alert is not None:
+        recent_detection_count = int(
+            db.execute(
+                select(func.count(EggDetection.id)).where(
+                    EggDetection.device_id == device.id,
+                    EggDetection.detected_at >= cutoff,
+                )
+            ).scalar_one()
+            or 0
+        )
+        if recent_detection_count > 0:
+            return
 
     resolve_alerts(db, device=device, alert_type="uncertain_detection")
 
@@ -1094,7 +1107,7 @@ def evaluate_low_production_alert(db: Session, device: Device) -> None:
     resolve_alerts(db, device=device, alert_type="low_production")
 
 
-def evaluate_alerts(db: Session, device: Device | None = None) -> None:
+def evaluate_alerts(db: Session, device: Device | None = None, raw_unknown_count: int = 0) -> None:
     if device is not None:
         devices = [device]
     else:
@@ -1105,6 +1118,10 @@ def evaluate_alerts(db: Session, device: Device | None = None) -> None:
                 resolve_alerts(db, device=current, alert_type=alert_type)
             continue
         evaluate_device_offline_alert(db, current)
-        evaluate_uncertain_detection_alert(db, current)
+        evaluate_uncertain_detection_alert(
+            db,
+            current,
+            raw_unknown_count=raw_unknown_count if device is not None and current.id == device.id else 0,
+        )
         evaluate_missing_data_alert(db, current)
         evaluate_low_production_alert(db, current)

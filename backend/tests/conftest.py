@@ -16,6 +16,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("AUTO_CREATE_SCHEMA", "true")
 os.environ.setdefault("SEED_ADMIN_PASSWORD", "admin123")
 os.environ.setdefault("SEED_VIEWER_PASSWORD", "viewer123")
+os.environ.setdefault("SEED_EDITOR_PASSWORD", "editor123")
 os.environ.setdefault("SEED_DEVICE_API_KEY", "dev-cam-001-key")
 
 from app.main import app  # noqa: E402

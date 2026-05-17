@@ -60,6 +60,7 @@ def ingest_events(
         new_eggs=payload.new_eggs,
         timestamp=payload.timestamp,
     )
+    raw_unknown_count = sum(1 for egg in event_eggs if egg.size == "unknown")
     corrected_event_eggs = correct_event_egg_sizes(
         event_eggs,
         previous_size_breakdown=previous_snapshot.size_breakdown if previous_snapshot else None,
@@ -117,7 +118,7 @@ def ingest_events(
             target_total=collected_today,
             dry_run=False,
         )
-    evaluate_alerts(db, current_device)
+    evaluate_alerts(db, current_device, raw_unknown_count=raw_unknown_count)
     db.commit()
     return EventIngestResponse(
         events_created=events_created,

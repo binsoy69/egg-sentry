@@ -14,18 +14,29 @@ def seed_defaults(db: Session) -> dict[str, int | str]:
     created_devices = 0
 
     defaults = [
-        (settings.seed_admin_username, settings.seed_admin_password, settings.seed_admin_display_name),
-        (settings.seed_viewer_username, settings.seed_viewer_password, settings.seed_viewer_display_name),
+        (settings.seed_admin_username, settings.seed_admin_password, settings.seed_admin_display_name, "admin"),
+        (settings.seed_viewer_username, settings.seed_viewer_password, settings.seed_viewer_display_name, "viewer"),
+        (
+            settings.seed_editor_username,
+            settings.seed_editor_password,
+            settings.seed_editor_display_name,
+            "history_editor",
+        ),
     ]
-    for username, password, display_name in defaults:
+    for username, password, display_name, role in defaults:
         existing = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
         if existing:
+            existing.role = role
+            if not existing.display_name:
+                existing.display_name = display_name
+            db.add(existing)
             continue
         db.add(
             User(
                 username=username,
                 password_hash=get_password_hash(password),
                 display_name=display_name,
+                role=role,
                 is_active=True,
             )
         )
@@ -56,4 +67,5 @@ def seed_defaults(db: Session) -> dict[str, int | str]:
         "seed_device_id": settings.seed_device_id,
         "seed_admin_username": settings.seed_admin_username,
         "seed_viewer_username": settings.seed_viewer_username,
+        "seed_editor_username": settings.seed_editor_username,
     }

@@ -35,6 +35,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
 
 
+def get_history_editor_user(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "history_editor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="History editor access required")
+    return current_user
+
+
 def get_current_device(
     x_device_key: str = Header(alias="X-Device-Key"),
     db: Session = Depends(get_db),

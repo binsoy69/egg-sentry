@@ -1,7 +1,9 @@
 ﻿from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.constants import SIZE_ORDER
 
 
 class TokenResponse(BaseModel):
@@ -20,6 +22,7 @@ class UserRead(BaseModel):
     id: int
     username: str
     display_name: str | None = None
+    role: Literal["admin", "viewer", "history_editor"]
     is_active: bool
     created_at: datetime
 
@@ -255,6 +258,48 @@ class HistoryResponse(BaseModel):
     page: int
     limit: int
     records: list[HistoryRecord]
+
+
+class HistoryCollectionMutationRequest(BaseModel):
+    device_id: str
+    collected_at: datetime
+    size_breakdown: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("size_breakdown")
+    @classmethod
+    def validate_size_breakdown(cls, value: dict[str, int]) -> dict[str, int]:
+        invalid_sizes = sorted(set(value) - set(SIZE_ORDER))
+        if invalid_sizes:
+            raise ValueError(f"Invalid size keys: {', '.join(invalid_sizes)}")
+
+        normalized = {size: int(value.get(size, 0)) for size in SIZE_ORDER}
+        negative_sizes = [size for size, count in normalized.items() if count < 0]
+        if negative_sizes:
+            raise ValueError(f"Size counts cannot be negative: {', '.join(negative_sizes)}")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_total_count(self):
+        if sum(self.size_breakdown.values()) < 1:
+            raise ValueError("At least one egg is required")
+        return self
+
+
+class HistoryCollectionRecord(BaseModel):
+    id: int
+    device_id: str
+    count: int
+    source: Literal["manual", "automatic"]
+    size_breakdown: dict[str, int]
+    collected_at: datetime
+    collected_at_display: str
+
+
+class HistoryCollectionsResponse(BaseModel):
+    total_records: int
+    page: int
+    limit: int
+    records: list[HistoryCollectionRecord]
 
 
 class AlertRead(BaseModel):
