@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Clock3, LoaderCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
 
 import CollectionActionModal from '../dashboard/CollectionActionModal';
@@ -62,6 +62,7 @@ const sizeSummary = (breakdown) => {
 
 const HistoryCollectionManager = ({ params, onChanged }) => {
   const { devices, loading: devicesLoading, error: devicesError } = useDevices();
+  const editFormRef = useRef(null);
   const [records, setRecords] = useState([]);
   const [totalRecords, setTotalRecords] = useState(0);
   const [page, setPage] = useState(1);
@@ -219,6 +220,11 @@ const HistoryCollectionManager = ({ params, onChanged }) => {
         {}
       ),
     });
+
+    window.requestAnimationFrame(() => {
+      editFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      editFormRef.current?.focus({ preventScroll: true });
+    });
   };
 
   const confirmDelete = async () => {
@@ -261,7 +267,13 @@ const HistoryCollectionManager = ({ params, onChanged }) => {
         </div>
       </div>
 
-      <form onSubmit={submitForm} className="border-b border-slate-100 px-4 py-5 sm:px-6">
+      <form
+        ref={editFormRef}
+        onSubmit={submitForm}
+        tabIndex={-1}
+        aria-label="History record editor"
+        className="scroll-mt-24 border-b border-slate-100 px-4 py-5 outline-none sm:px-6"
+      >
         <div className="grid gap-3 lg:grid-cols-[1fr,1fr,auto]">
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Device</span>
