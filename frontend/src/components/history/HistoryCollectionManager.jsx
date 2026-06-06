@@ -113,7 +113,7 @@ const HistoryCollectionManager = ({ params, onChanged }) => {
         if (!isMounted) {
           return;
         }
-        setError(err.response?.data?.detail || err.message || 'Failed to load editable history records.');
+        setError(err.response?.data?.detail || err.message || 'Failed to load editable history eggs.');
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -260,10 +260,10 @@ const HistoryCollectionManager = ({ params, onChanged }) => {
             <Pencil className="h-3.5 w-3.5" />
             Editor
           </div>
-          <h2 className="mt-3 text-xl font-bold text-dark-slate">Manage History Records</h2>
+          <h2 className="mt-3 text-xl font-bold text-dark-slate">Manage History Eggs</h2>
         </div>
         <div className="rounded-full bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-600">
-          {totalRecords} grouped records
+          {totalRecords} grouped eggs
         </div>
       </div>
 
@@ -271,7 +271,7 @@ const HistoryCollectionManager = ({ params, onChanged }) => {
         ref={editFormRef}
         onSubmit={submitForm}
         tabIndex={-1}
-        aria-label="History record editor"
+        aria-label="History egg editor"
         className="scroll-mt-24 border-b border-slate-100 px-4 py-5 outline-none sm:px-6"
       >
         <div className="grid gap-3 lg:grid-cols-[1fr,1fr,auto]">
@@ -354,7 +354,7 @@ const HistoryCollectionManager = ({ params, onChanged }) => {
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-yolk-yellow px-5 py-2 text-sm font-semibold text-white transition hover:bg-yolk-yellow/90 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : editingId ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            {editingId ? 'Save Record' : 'Add Record'}
+            {editingId ? 'Save Eggs' : 'Add Eggs'}
           </button>
         </div>
       </form>
@@ -369,11 +369,11 @@ const HistoryCollectionManager = ({ params, onChanged }) => {
         {loading ? (
           <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-8 text-sm text-slate-500">
             <LoaderCircle className="mr-2 h-5 w-5 animate-spin text-yolk-yellow" />
-            Loading grouped records...
+            Loading grouped eggs...
           </div>
         ) : records.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
-            No editable records match the current filters.
+            No editable eggs match the current filters.
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-200">
@@ -508,9 +508,9 @@ const HistoryCollectionManager = ({ params, onChanged }) => {
 
       <CollectionActionModal
         isOpen={Boolean(deleteTarget)}
-        title="Delete history record?"
-        description={`This removes the ${deleteTarget?.count ?? ''} egg record from history and reports.`}
-        confirmLabel="Delete record"
+        title="Delete history eggs?"
+        description={`This removes the ${deleteTarget?.count ?? ''} egg entry from history and reports.`}
+        confirmLabel="Delete eggs"
         onCancel={() => {
           if (!deleting) {
             setDeleteError('');

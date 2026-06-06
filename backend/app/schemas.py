@@ -260,6 +260,23 @@ class HistoryResponse(BaseModel):
     records: list[HistoryRecord]
 
 
+class HistoryDailyRecord(BaseModel):
+    date: str
+    date_display: str
+    eggs: int
+    num_chickens: int
+    laying_percentage: float
+    size_breakdown: dict[str, int]
+
+
+class HistoryDailyResponse(BaseModel):
+    total_records: int
+    total_eggs: int
+    page: int
+    limit: int
+    records: list[HistoryDailyRecord]
+
+
 class HistoryCollectionMutationRequest(BaseModel):
     device_id: str
     collected_at: datetime

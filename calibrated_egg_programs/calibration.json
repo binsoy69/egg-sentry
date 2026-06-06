@@ -1,0 +1,98 @@
+{
+  "created_at": "2026-04-26T08:42:22.597493+00:00",
+  "labels": {
+    "jumbo": "jumbo",
+    "large": "large",
+    "medium": "medium",
+    "peewee": "peewee",
+    "small": "small",
+    "xl": "xl"
+  },
+  "labels_ordered_by_area": [
+    "peewee",
+    "medium",
+    "small",
+    "large",
+    "jumbo",
+    "xl"
+  ],
+  "quality_filters": {
+    "aspect_ratio_max": 2.0,
+    "aspect_ratio_min": 0.5,
+    "edge_margin_pixels": 10
+  },
+  "sample_summary": {
+    "jumbo": {
+      "count": 5,
+      "max": 0.0055859375,
+      "median": 0.004557291666666667,
+      "min": 0.003681640625
+    },
+    "large": {
+      "count": 5,
+      "max": 0.004671223958333333,
+      "median": 0.0042154947916666664,
+      "min": 0.00365234375
+    },
+    "medium": {
+      "count": 5,
+      "max": 0.00390625,
+      "median": 0.0038671875,
+      "min": 0.0031315104166666666
+    },
+    "peewee": {
+      "count": 5,
+      "max": 0.0041015625,
+      "median": 0.0033040364583333333,
+      "min": 0.0030924479166666665
+    },
+    "small": {
+      "count": 5,
+      "max": 0.00482421875,
+      "median": 0.003974609375,
+      "min": 0.0035319010416666667
+    },
+    "xl": {
+      "count": 5,
+      "max": 0.005729166666666666,
+      "median": 0.005078125,
+      "min": 0.0041015625
+    }
+  },
+  "threshold_method": "adjacent_pair_min_error",
+  "threshold_values": [
+    0.00333984375,
+    0.0039404296875,
+    0.004095052083333333,
+    0.004267578125,
+    0.004931640625000001
+  ],
+  "thresholds": [
+    {
+      "above_label_id": "medium",
+      "below_label_id": "peewee",
+      "max_normalized_area": 0.00333984375
+    },
+    {
+      "above_label_id": "small",
+      "below_label_id": "medium",
+      "max_normalized_area": 0.0039404296875
+    },
+    {
+      "above_label_id": "large",
+      "below_label_id": "small",
+      "max_normalized_area": 0.004095052083333333
+    },
+    {
+      "above_label_id": "jumbo",
+      "below_label_id": "large",
+      "max_normalized_area": 0.004267578125
+    },
+    {
+      "above_label_id": "xl",
+      "below_label_id": "jumbo",
+      "max_normalized_area": 0.004931640625000001
+    }
+  ],
+  "version": 1
+}

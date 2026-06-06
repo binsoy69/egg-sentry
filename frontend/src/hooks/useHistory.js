@@ -4,6 +4,7 @@ import { historyService } from '../services/history';
 export const useHistory = (initialParams = { page: 1, limit: 20, size: 'all', start_date: '', end_date: '' }) => {
   const [records, setRecords] = useState([]);
   const [totalRecords, setTotalRecords] = useState(0);
+  const [totalEggs, setTotalEggs] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [params, setParams] = useState(initialParams);
@@ -34,7 +35,7 @@ export const useHistory = (initialParams = { page: 1, limit: 20, size: 'all', st
     const fetchRecords = async () => {
       setLoading(true);
       try {
-        const data = await historyService.getRecords(requestParams);
+        const data = await historyService.getDailyRecords(requestParams);
         if (!isMounted) {
           return;
         }
@@ -43,12 +44,13 @@ export const useHistory = (initialParams = { page: 1, limit: 20, size: 'all', st
           params.page === 1 ? data.records : [...prev, ...data.records]
         ));
         setTotalRecords(data.total_records);
+        setTotalEggs(data.total_eggs);
         setError(null);
       } catch (err) {
         if (!isMounted) {
           return;
         }
-        setError(err.message || 'Failed to fetch records');
+        setError(err.message || 'Failed to fetch eggs');
         console.error(err);
       } finally {
         if (isMounted) {
@@ -77,5 +79,5 @@ export const useHistory = (initialParams = { page: 1, limit: 20, size: 'all', st
 
   const hasMore = records.length < totalRecords;
 
-  return { records, totalRecords, hasMore, loading, error, params, updateParams, loadMore, refetch };
+  return { records, totalRecords, totalEggs, hasMore, loading, error, params, updateParams, loadMore, refetch };
 };

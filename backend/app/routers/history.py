@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -12,6 +13,8 @@ from app.schemas import (
     HistoryCollectionMutationRequest,
     HistoryCollectionRecord,
     HistoryCollectionsResponse,
+    HistoryDailyRecord,
+    HistoryDailyResponse,
     HistoryResponse,
 )
 from app.services import (
@@ -98,6 +101,57 @@ def _serialize_collection(
     )
 
 
+def _build_daily_history_records(
+    collections: list[EggCollection],
+    resolved_breakdowns: dict[int, dict[str, int] | None],
+    filter_size: str | None = None,
+) -> list[HistoryDailyRecord]:
+    grouped = defaultdict(
+        lambda: {
+            "eggs": 0,
+            "device_chickens": {},
+            "size_breakdown": {size: 0 for size in SIZE_ORDER},
+        }
+    )
+
+    for collection in collections:
+        local_date = localize(collection.collected_at).date()
+        group = grouped[local_date]
+        group["eggs"] += max(int(collection.collected_count), 0)
+        if collection.device:
+            group["device_chickens"][collection.device.id] = max(int(collection.device.num_chickens), 0)
+
+        breakdown = _full_size_breakdown(
+            normalize_collection_size_breakdown(
+                collection.collected_count,
+                resolved_breakdowns.get(collection.id),
+            )
+        )
+        for size, count in breakdown.items():
+            group["size_breakdown"][size] = int(group["size_breakdown"].get(size, 0)) + max(int(count), 0)
+
+    records: list[HistoryDailyRecord] = []
+    for target_date, group in sorted(grouped.items(), key=lambda item: item[0], reverse=True):
+        size_breakdown = _full_size_breakdown(group["size_breakdown"])
+        if filter_size and int(size_breakdown.get(filter_size, 0)) <= 0:
+            continue
+
+        num_chickens = sum(group["device_chickens"].values())
+        laying_percentage = round((group["eggs"] / num_chickens) * 100, 1) if num_chickens > 0 else 0.0
+        records.append(
+            HistoryDailyRecord(
+                date=target_date.isoformat(),
+                date_display=target_date.strftime("%b %d, %Y"),
+                eggs=group["eggs"],
+                num_chickens=num_chickens,
+                laying_percentage=laying_percentage,
+                size_breakdown=size_breakdown,
+            )
+        )
+
+    return records
+
+
 @router.get("", response_model=HistoryResponse)
 def get_history(
     device_id: str | None = Query(default=None),
@@ -127,6 +181,42 @@ def get_history(
     page_items = records[start_idx : start_idx + limit]
     return HistoryResponse(
         total_records=total_records,
+        page=page,
+        limit=limit,
+        records=page_items,
+    )
+
+
+@router.get("/daily", response_model=HistoryDailyResponse)
+def get_daily_history(
+    device_id: str | None = Query(default=None),
+    size: str | None = Query(default=None),
+    size_class: str | None = Query(default=None),
+    from_date: date | None = Query(default=None, alias="from"),
+    to_date: date | None = Query(default=None, alias="to"),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    start, end = _resolve_bounds(from_date=from_date, to_date=to_date, start_date=start_date, end_date=end_date)
+    device = _resolve_requested_device(db, device_id)
+    filter_size = size_class or (None if size == "all" else size)
+    if filter_size and filter_size not in SIZE_ORDER:
+        raise HTTPException(status_code=422, detail="Invalid size filter")
+
+    collections = query_collections(db, device=device, start=start, end=end)
+    resolved_breakdowns = resolve_collection_size_breakdowns(db, collections)
+    records = _build_daily_history_records(collections, resolved_breakdowns, filter_size)
+    total_records = len(records)
+    total_eggs = sum(record.eggs for record in records)
+    start_idx = (page - 1) * limit
+    page_items = records[start_idx : start_idx + limit]
+    return HistoryDailyResponse(
+        total_records=total_records,
+        total_eggs=total_eggs,
         page=page,
         limit=limit,
         records=page_items,
