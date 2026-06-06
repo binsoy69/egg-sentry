@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
+from app.models import Device
 from app.services import current_local_date, local_day_bounds
 from tests.helpers import create_event_payload
 
@@ -44,6 +45,84 @@ def test_history_filters_and_pagination(client: TestClient, auth_headers: dict, 
     assert body["total_records"] == 2
     assert len(body["records"]) == 2
     assert all(record["size"] == "medium" for record in body["records"])
+
+
+def test_daily_history_groups_eggs_sizes_hens_and_laying_percentage(
+    client: TestClient,
+    auth_headers: dict,
+    db_session,
+):
+    editor_headers = _login_headers(client, "editor", "editor123")
+    today = current_local_date()
+    today_start, _ = local_day_bounds(today)
+    yesterday_start, _ = local_day_bounds(today - timedelta(days=1))
+
+    db_session.add(
+        Device(
+            device_id="cam-002",
+            api_key="dev-cam-002-key",
+            name="Coop Camera 2",
+            num_cages=1,
+            num_chickens=12,
+        )
+    )
+    db_session.commit()
+    client.put("/api/devices/cam-001", json={"num_chickens": 8}, headers=auth_headers)
+
+    client.post(
+        "/api/history/collections",
+        json=_history_payload(collected_at=today_start + timedelta(hours=8), medium=2, large=1),
+        headers=editor_headers,
+    )
+    client.post(
+        "/api/history/collections",
+        json=_history_payload(
+            collected_at=today_start + timedelta(hours=10),
+            device_id="cam-002",
+            medium=1,
+            jumbo=1,
+        ),
+        headers=editor_headers,
+    )
+    client.post(
+        "/api/history/collections",
+        json=_history_payload(collected_at=yesterday_start + timedelta(hours=8), large=1),
+        headers=editor_headers,
+    )
+
+    response = client.get(
+        f"/api/history/daily?start_date={today.isoformat()}&end_date={today.isoformat()}",
+        headers=auth_headers,
+    )
+    medium_response = client.get("/api/history/daily?size=medium", headers=auth_headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_records"] == 1
+    assert body["total_eggs"] == 5
+    assert body["records"] == [
+        {
+            "date": today.isoformat(),
+            "date_display": today.strftime("%b %d, %Y"),
+            "eggs": 5,
+            "num_chickens": 20,
+            "laying_percentage": 25.0,
+            "size_breakdown": {
+                "small": 0,
+                "medium": 3,
+                "large": 1,
+                "extra-large": 0,
+                "jumbo": 1,
+                "unknown": 0,
+            },
+        }
+    ]
+
+    assert medium_response.status_code == 200
+    medium_body = medium_response.json()
+    assert medium_body["total_records"] == 1
+    assert medium_body["total_eggs"] == 5
+    assert medium_body["records"][0]["size_breakdown"]["large"] == 1
 
 
 def test_history_collection_endpoints_require_history_editor(client: TestClient, auth_headers: dict):

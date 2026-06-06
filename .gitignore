@@ -80,3 +80,5 @@ backend/.deps/
 edge/offline_events.json
 calibration/*
 models/*
+
+data for paper/*

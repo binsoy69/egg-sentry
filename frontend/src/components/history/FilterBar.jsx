@@ -18,7 +18,7 @@ const formatDateInputValue = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-const FilterBar = ({ params, totalRecords, onUpdate, onExport, exporting }) => {
+const FilterBar = ({ params, totalEggs, onUpdate, onExport, exporting }) => {
   const today = formatDateInputValue(new Date());
   const isTodayFilterActive = params.start_date === today && params.end_date === today;
 
@@ -40,7 +40,7 @@ const FilterBar = ({ params, totalRecords, onUpdate, onExport, exporting }) => {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center whitespace-nowrap rounded-full bg-amber-50 px-4 py-1.5 text-[18px] font-bold leading-tight text-alert-red">
-            {totalRecords} records
+            {totalEggs} eggs
           </span>
           <button
             type="button"

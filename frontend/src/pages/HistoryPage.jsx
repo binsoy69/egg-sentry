@@ -8,7 +8,16 @@ import { useHistory } from '../hooks/useHistory';
 import { useAuth } from '../hooks/useAuth';
 import { historyService } from '../services/history';
 
-const EXPORT_HEADERS = ['Record ID', 'Date', 'Size', 'Collected At', 'Device ID', 'Timestamp'];
+const SIZE_EXPORT_FIELDS = [
+  { key: 'small', label: 'S' },
+  { key: 'medium', label: 'M' },
+  { key: 'large', label: 'L' },
+  { key: 'extra-large', label: 'XL' },
+  { key: 'jumbo', label: 'Jumbo' },
+  { key: 'unknown', label: 'Unknown' },
+];
+
+const EXPORT_HEADERS = ['Date', 'Eggs', 'Hens', 'Laying %', ...SIZE_EXPORT_FIELDS.map((field) => field.label)];
 
 const buildExportFilename = ({ start_date: startDate, end_date: endDate }) => {
   if (startDate && endDate) {
@@ -25,18 +34,17 @@ const buildExportFilename = ({ start_date: startDate, end_date: endDate }) => {
 
 const buildExportRows = (records) => (
   records.map((record) => [
-    record.id,
-    record.date,
-    record.size_display || record.size,
-    record.detected_at,
-    record.device_id,
-    record.timestamp,
+    record.date_display || record.date,
+    record.eggs,
+    record.num_chickens,
+    `${Number(record.laying_percentage || 0).toFixed(1)}%`,
+    ...SIZE_EXPORT_FIELDS.map((field) => Number(record.size_breakdown?.[field.key] || 0)),
   ])
 );
 
 const HistoryPage = () => {
   const { user } = useAuth();
-  const { records, totalRecords, hasMore, loading, error, params, updateParams, loadMore, refetch } = useHistory();
+  const { records, totalEggs, hasMore, loading, error, params, updateParams, loadMore, refetch } = useHistory();
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
   const canManageHistory = user?.role === 'history_editor';
@@ -46,7 +54,7 @@ const HistoryPage = () => {
     setExportError(null);
 
     try {
-      const data = await historyService.getAllRecords(params);
+      const data = await historyService.getAllDailyRecords(params);
       const worksheet = XLSX.utils.aoa_to_sheet([
         EXPORT_HEADERS,
         ...buildExportRows(data.records),
@@ -56,7 +64,7 @@ const HistoryPage = () => {
       XLSX.utils.book_append_sheet(workbook, worksheet, 'History');
       XLSX.writeFile(workbook, buildExportFilename(params));
     } catch (err) {
-      setExportError(err.message || 'Failed to export records');
+      setExportError(err.message || 'Failed to export eggs');
       console.error(err);
     } finally {
       setExporting(false);
@@ -68,13 +76,13 @@ const HistoryPage = () => {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-dark-slate sm:text-3xl">History</h1>
-          <p className="text-sm text-gray-500">Browse collected egg records with filters</p>
+          <p className="text-sm text-gray-500">Browse collected eggs with filters</p>
         </div>
       </div>
 
       <FilterBar
         params={params}
-        totalRecords={totalRecords}
+        totalEggs={totalEggs}
         onUpdate={updateParams}
         onExport={handleExport}
         exporting={exporting}
@@ -106,7 +114,7 @@ const HistoryPage = () => {
             className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-2 text-sm font-medium text-dark-slate shadow-sm transition-all hover:bg-slate-50 hover:shadow disabled:opacity-50"
           >
             {loading ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-dark-slate border-t-transparent"></div> : null}
-            Load More Records
+            Load More Eggs
           </button>
         </div>
       ) : null}

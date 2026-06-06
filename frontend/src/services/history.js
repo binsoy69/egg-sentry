@@ -26,6 +26,10 @@ export const historyService = {
     const response = await api.get('/history', { params: buildHistoryParams(params) });
     return response.data;
   },
+  getDailyRecords: async (params) => {
+    const response = await api.get('/history/daily', { params: buildHistoryParams(params) });
+    return response.data;
+  },
   getCollections: async (params) => {
     const response = await api.get('/history/collections', { params: buildHistoryParams(params) });
     return response.data;
@@ -61,6 +65,31 @@ export const historyService = {
 
     return {
       total_records: totalRecords,
+      records,
+    };
+  },
+  getAllDailyRecords: async (params = {}) => {
+    let page = 1;
+    let totalRecords = 0;
+    let totalEggs = 0;
+    const records = [];
+
+    do {
+      const data = await historyService.getDailyRecords({
+        ...params,
+        page,
+        limit: EXPORT_PAGE_LIMIT,
+      });
+
+      totalRecords = data.total_records;
+      totalEggs = data.total_eggs;
+      records.push(...data.records);
+      page += 1;
+    } while (records.length < totalRecords);
+
+    return {
+      total_records: totalRecords,
+      total_eggs: totalEggs,
       records,
     };
   },
